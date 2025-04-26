@@ -1,0 +1,48 @@
+
+   Source: D:\repos\BAREWire\src
+
+Mode            Length Hierarchy
+----            ------ ---------
+d----          1.97 KB src
+-a---          1.97 KB ├── BAREWire.fsproj
+-a---          0.00  B ├── directory_structure.txt
+d----         15.71 KB ├── Core
+-a---          5.09 KB │   ├── Error.fs
+-a---          7.02 KB │   ├── Memory.fs
+-a---          3.60 KB │   └── Types.fs
+d----         40.97 KB ├── Encoding
+-a---         13.52 KB │   ├── Codec.fs
+-a---         16.41 KB │   ├── Decoder.fs
+-a---         11.04 KB │   └── Encoder.fs
+d----         45.03 KB ├── IPC
+-a---         13.33 KB │   ├── MessageQueue.fs
+-a---         16.49 KB │   ├── NamedPipe.fs
+-a---         15.20 KB │   └── SharedMemory.fs
+d----         56.62 KB ├── Memory
+-a---         16.59 KB │   ├── Mapping.fs
+-a---          9.66 KB │   ├── Region.fs
+-a---         30.37 KB │   └── View.fs
+d----         66.74 KB ├── Network
+-a---         12.82 KB │   ├── Frame.fs
+-a---         18.73 KB │   ├── Protocol.fs
+-a---         35.19 KB │   └── Transport.fs
+d----          8.18 KB ├── Platform
+-a---          8.18 KB │   ├── PlatformServices.fs
+d----         36.25 KB │   ├── Common
+-a---         16.94 KB │   │   ├── Interfaces.fs
+-a---         12.06 KB │   │   ├── Registry.fs
+-a---          7.25 KB │   │   └── Resource.fs
+d----        100.28 KB │   └── Providers
+-a---          0.00  B │       ├── Android.fs
+-a---         41.23 KB │       ├── InMemory.fs
+-a---          0.00  B │       ├── iOS.fs
+-a---          0.00  B │       ├── Linux.fs
+-a---          0.00  B │       ├── MacOS.fs
+-a---          0.00  B │       ├── WebAssembly.fs
+-a---         59.05 KB │       └── Windows.fs
+d----         43.25 KB └── Schema
+-a---         14.19 KB     ├── Analysis.fs
+-a---         10.99 KB     ├── Definition.fs
+-a---          6.47 KB     ├── DSL.fs
+-a---         11.59 KB     └── Validation.fs
+

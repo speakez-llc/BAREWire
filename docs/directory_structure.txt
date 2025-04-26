@@ -1,0 +1,16 @@
+
+   Source: D:\repos\BAREWire\docs
+
+Mode            Length Hierarchy
+----            ------ ---------
+d----        144.25 KB docs
+-a---          4.75 KB ├── 00 Architecture Overview.md
+-a---          5.33 KB ├── 01 Core Types and Measures.md
+-a---         19.57 KB ├── 02 Encoding and Decoding Engine.md
+-a---         23.04 KB ├── 03 Schema System.md
+-a---         20.60 KB ├── 04 Memory Mapping.md
+-a---         36.66 KB ├── 05 Network Protocol.md
+-a---         34.31 KB ├── 06 IPC Integration.md
+-a---          0.00  B ├── directory_structure.txt
+-a---          0.00  B └── README.md
+
