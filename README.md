@@ -3,7 +3,7 @@
 BAREWire is a comprehensive F# library for efficient binary data encoding, memory mapping, and inter-process communication. It implements the [BARE (Binary Application Record Encoding)](https://baremessages.org/) protocol with zero-copy operations, strong type safety, and modular components for use in high-performance applications.
 
 [![NuGet](https://img.shields.io/nuget/v/BAREWire.svg)](https://www.nuget.org/packages/BAREWire/)
-[![License](https://img.shields.io/github/license/yourusername/BAREWire.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0%20%2F%20Commercial-blue.svg)](LICENSE)
 
 ## Features
 
@@ -261,31 +261,63 @@ BAREWire is designed as a modular system with several core components that work 
 ```
 BAREWire/
 ├── Core/
-│   ├── Types.fs           # Core type definitions and measures
-│   ├── Memory.fs          # Memory representation and operations
-│   └── Error.fs           # Error handling types
+│   ├── Binary.fs           # Binary conversion utilities
+│   ├── Error.fs            # Error handling types
+│   ├── Memory.fs           # Memory representation and operations
+│   ├── Time.fs             # Time utilities and functions
+│   ├── Types.fs            # Core type definitions and measures
+│   ├── Utf8.fs             # UTF-8 encoding/decoding
+│   └── Uuid.fs             # UUID generation and handling
 ├── Encoding/
-│   ├── Encoder.fs         # Encoding primitives
-│   ├── Decoder.fs         # Decoding primitives
-│   └── Codec.fs           # Combined encoding/decoding operations
-├── Schema/
-│   ├── Definition.fs      # Schema type definitions
-│   ├── Validation.fs      # Schema validation logic
-│   ├── Analysis.fs        # Schema analysis tools
-│   └── DSL.fs             # Domain-specific language for schema definition
+│   ├── Codec.fs            # Combined encoding/decoding operations
+│   ├── Decoder.fs          # Decoding primitives
+│   └── Encoder.fs          # Encoding primitives
+├── IPC/
+│   ├── MessageQueue.fs     # Message queues for IPC
+│   ├── NamedPipe.fs        # Named pipes for IPC
+│   └── SharedMemory.fs     # Shared memory regions
 ├── Memory/
-│   ├── Region.fs          # Memory region operations
-│   ├── View.fs            # Memory view operations
-│   └── Mapping.fs         # Memory mapping functions
+│   ├── Mapping.fs          # Memory mapping functions
+│   ├── Region.fs           # Memory region operations
+│   ├── SafeMemory.fs       # Safe memory operations
+│   └── View.fs             # Memory view operations
 ├── Network/
-│   ├── Frame.fs           # Frame format for binary communication
-│   ├── Transport.fs       # Transport abstractions
-│   └── Protocol.fs        # Message passing primitives
-└── IPC/
-    ├── SharedMemory.fs    # Shared memory regions
-    ├── MessageQueue.fs    # Message queues
-    └── NamedPipe.fs       # Named pipes
+│   ├── Frame.fs            # Frame format for binary communication
+│   ├── Protocol.fs         # Message passing primitives
+│   └── Transport.fs        # Transport abstractions
+├── Platform/
+│   ├── PlatformServices.fs # Platform service registration
+│   ├── Common/
+│   │   ├── Interfaces.fs   # Platform abstraction interfaces
+│   │   ├── Registry.fs     # Platform provider registry
+│   │   └── Resource.fs     # Resource management
+│   └── Providers/
+│       ├── Android.fs      # Android-specific implementations
+│       ├── InMemory.fs     # In-memory simulation implementations
+│       ├── iOS.fs          # iOS-specific implementations
+│       ├── Linux.fs        # Linux-specific implementations
+│       ├── MacOS.fs        # macOS-specific implementations
+│       ├── WebAssembly.fs  # WebAssembly implementations
+│       └── Windows.fs      # Windows-specific implementations
+└── Schema/
+    ├── Analysis.fs         # Schema analysis tools
+    ├── Definition.fs       # Schema type definitions
+    ├── DSL.fs              # Domain-specific language for schema definition
+    └── Validation.fs       # Schema validation logic
 ```
+
+## Cross-Platform Support
+
+BAREWire is designed to work across multiple platforms through its platform abstraction layer:
+
+- **Windows**: Full support for shared memory, named pipes, and TCP/IP networking
+- **Linux**: Native implementations for shared memory, FIFOs, and sockets
+- **macOS**: Darwin-specific implementations for IPC and networking
+- **Android**: Custom implementations for Android's shared memory and IPC mechanisms
+- **iOS**: iOS-specific memory management and IPC
+- **WebAssembly**: Browser-compatible implementations using SharedArrayBuffer where available
+
+The platform-specific code is isolated in the `Platform/Providers` directory, allowing the core library to remain platform-agnostic while still providing optimized implementations for each target environment.
 
 ## Performance
 
@@ -296,10 +328,39 @@ BAREWire is designed for high performance with minimal allocations:
 - Efficient binary encoding/decoding
 - Type-safe operations without runtime overhead
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+BAREWire is dual-licensed under both the Apache License 2.0 and a Commercial License.
+
+### Open Source License
+
+For most users, including:
+- Open source projects
+- Academic and educational use
+- Non-commercial applications
+- Personal projects and experimentation
+- Internal tools that are not part of your commercial product
+
+You can use BAREWire under the **Apache License 2.0** with no additional requirements. The Apache License 2.0 is a permissive open source license that allows you to use, modify, and distribute the software with minimal restrictions.
+
+### Commercial License
+
+A Commercial License is required if you are:
+- Incorporating BAREWire into a commercial product or service that you sell to customers
+- Using BAREWire as part of your company's commercial offering
+- Distributing BAREWire as part of a proprietary software solution
+- Requiring professional support, indemnification, or custom development
+
+The Commercial License provides additional rights and benefits not available under the Apache License 2.0, including explicit patent rights, professional support options, and freedom from certain open source requirements.
+
+For information about obtaining a Commercial License, please see [Commercial.md](Commercial.md) or contact us directly.
+
+### Patent Notice
+
+BAREWire includes technology covered by U.S. Patent Application No. 63/786,247 "System and Method for Zero-Copy Inter-Process Communication Using BARE Protocol". For details on patent licensing under both the Apache and Commercial licenses, please see [PATENTS.md](PATENTS.md).
+
+## Contributing
+
+Contributions are welcome! By submitting a pull request, you agree to license your contributions under the same license terms as the project (dual Apache 2.0 and Commercial License).
+
+For major changes or new features, please open an issue first to discuss what you would like to change.

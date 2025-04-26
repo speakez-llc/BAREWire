@@ -1,13 +1,9 @@
 # F# Unit Testing Strategy for BAREWire
 
-## Standard Testing Patterns for F# Libraries
-
-The standard approach for testing F# libraries involves creating a dedicated test project that mirrors your main project structure. For a library like BAREWire, I recommend the following testing strategy:
-
-### Test Project Organization
+## Test Project Organization
 
 ```
-BAREWire.Tests/
+tests/
 ├── BAREWire.Tests.fsproj
 ├── TestHelpers/
 │   ├── TestFixtures.fs
