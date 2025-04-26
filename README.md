@@ -259,7 +259,7 @@ match checkCompatibility oldSchema newSchema with
 BAREWire is designed as a modular system with several core components that work together:
 
 ```
-BAREWire/
+src/
 ├── Core/
 │   ├── Binary.fs           # Binary conversion utilities
 │   ├── Error.fs            # Error handling types
