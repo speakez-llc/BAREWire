@@ -5,6 +5,7 @@ open FSharp.NativeInterop
 open BAREWire.Core
 open BAREWire.Core.Error
 open BAREWire.Core.Memory
+open BAREWire.Memory.SafeMemory
 
 #nowarn "9" // Disable warning about using fixed keyword
 
@@ -320,87 +321,75 @@ module View =
                     Length = min fieldOffset.Size (view.Memory.Length - fieldOffset.Offset)
                 }
                 
-                // Pin the array to ensure GC doesn't move it during native operations
-                let handle = GCHandle.Alloc(fieldMemory.Data, GCHandleType.Pinned)
-                try
-                    // Get a pointer to the field memory
-                    let basePtr = handle.AddrOfPinnedObject()
-                    let fieldPtr = IntPtr.Add(basePtr, int fieldMemory.Offset)
-                    
-                    // Based on the field type, marshal or decode the value
-                    match fieldOffset.Type with
-                    | Primitive primType ->
-                        match primType with
-                        | U8 -> 
-                            let value = Marshal.ReadByte(fieldPtr)
+                // Based on the field type, decode the value
+                match fieldOffset.Type with
+                | Primitive primType ->
+                    match primType with
+                    | U8 -> 
+                        let value = readByte fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | U16 -> 
+                        let value = readUnmanaged<uint16> fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | U32 -> 
+                        let value = readUnmanaged<uint32> fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | U64 -> 
+                        let value = readUnmanaged<uint64> fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | I8 -> 
+                        let value = readUnmanaged<sbyte> fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | I16 -> 
+                        let value = readUnmanaged<int16> fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | I32 -> 
+                        let value = readUnmanaged<int32> fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | I64 -> 
+                        let value = readUnmanaged<int64> fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | F32 -> 
+                        let value = readUnmanaged<float32> fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | F64 -> 
+                        let value = readUnmanaged<float> fieldMemory.Data (int fieldMemory.Offset)
+                        Ok (box value :?> 'Field)
+                        
+                    | Bool -> 
+                        let value = readByte fieldMemory.Data (int fieldMemory.Offset) <> 0uy
+                        Ok (box value :?> 'Field)
+                        
+                    | String ->
+                        // String is stored as length + bytes
+                        let length = readUnmanaged<int32> fieldMemory.Data (int fieldMemory.Offset)
+                        
+                        if length > 0 then
+                            let bytes = Array.init length (fun i -> 
+                                readByte fieldMemory.Data (int fieldMemory.Offset + 4 + i))
+                            let value = BAREWire.Core.Utf8.getString bytes
                             Ok (box value :?> 'Field)
-                            
-                        | U16 -> 
-                            let value = Marshal.ReadInt16(fieldPtr)
-                            Ok (box (uint16 value) :?> 'Field)
-                            
-                        | U32 -> 
-                            let value = Marshal.ReadInt32(fieldPtr)
-                            Ok (box (uint32 value) :?> 'Field)
-                            
-                        | U64 -> 
-                            let value = Marshal.ReadInt64(fieldPtr)
-                            Ok (box (uint64 value) :?> 'Field)
-                            
-                        | I8 -> 
-                            let value = Marshal.ReadByte(fieldPtr)
-                            Ok (box (sbyte value) :?> 'Field)
-                            
-                        | I16 -> 
-                            let value = Marshal.ReadInt16(fieldPtr)
-                            Ok (box value :?> 'Field)
-                            
-                        | I32 -> 
-                            let value = Marshal.ReadInt32(fieldPtr)
-                            Ok (box value :?> 'Field)
-                            
-                        | I64 -> 
-                            let value = Marshal.ReadInt64(fieldPtr)
-                            Ok (box value :?> 'Field)
-                            
-                        | F32 -> 
-                            let value = Marshal.PtrToStructure<float32>(fieldPtr)
-                            Ok (box value :?> 'Field)
-                            
-                        | F64 -> 
-                            let value = Marshal.PtrToStructure<float>(fieldPtr)
-                            Ok (box value :?> 'Field)
-                            
-                        | Bool -> 
-                            let value = Marshal.ReadByte(fieldPtr) <> 0uy
-                            Ok (box value :?> 'Field)
-                            
-                        | String ->
-                            // String is stored as length + bytes
-                            let lengthPtr = fieldPtr
-                            let length = Marshal.ReadInt32(lengthPtr)
-                            
-                            if length > 0 then
-                                let stringPtr = IntPtr.Add(lengthPtr, 4)
-                                let bytes = Array.zeroCreate length
-                                Marshal.Copy(stringPtr, bytes, 0, length)
-                                let value = System.Text.Encoding.UTF8.GetString(bytes)
-                                Ok (box value :?> 'Field)
-                            else
-                                Ok (box "" :?> 'Field)
-                                
-                        | _ ->
-                            // For other types, we'd need to implement specific decoding logic
-                            // This is a simplified version
-                            Error (decodingError $"Decoding not implemented for type {fieldOffset.Type}")
+                        else
+                            Ok (box "" :?> 'Field)
                             
                     | _ ->
-                        // For complex types, we'd need to implement custom decoding logic
-                        // based on the schema and field type
-                        Error (decodingError $"Decoding not implemented for complex types")
+                        // For other types, we'd need to implement specific decoding logic
+                        // This is a simplified version
+                        Error (decodingError $"Decoding not implemented for type {fieldOffset.Type}")
                         
-                finally
-                    if handle.IsAllocated then handle.Free()
+                | _ ->
+                    // For complex types, we'd need to implement custom decoding logic
+                    // based on the schema and field type
+                    Error (decodingError $"Decoding not implemented for complex types")
                     
             with ex ->
                 Error (decodingError $"Failed to decode field {String.concat "." fieldPath}: {ex.Message}")
@@ -421,89 +410,81 @@ module View =
         resolveFieldPath view fieldPath
         |> Result.bind (fun fieldOffset ->
             try
-                // Pin the array to ensure GC doesn't move it during native operations
-                let handle = GCHandle.Alloc(view.Memory.Data, GCHandleType.Pinned)
-                try
-                    // Get a pointer to the field memory
-                    let basePtr = handle.AddrOfPinnedObject()
-                    let fieldPtr = IntPtr.Add(basePtr, int (view.Memory.Offset + fieldOffset.Offset))
-                    
-                    // Based on the field type, marshal or encode the value
-                    match fieldOffset.Type with
-                    | Primitive primType ->
-                        match primType with
-                        | U8 -> 
-                            let byteValue = value :?> byte
-                            Marshal.WriteByte(fieldPtr, byteValue)
-                            
-                        | U16 -> 
-                            let u16Value = value :?> uint16
-                            Marshal.WriteInt16(fieldPtr, int16 u16Value)
-                            
-                        | U32 -> 
-                            let u32Value = value :?> uint32
-                            Marshal.WriteInt32(fieldPtr, int32 u32Value)
-                            
-                        | U64 -> 
-                            let u64Value = value :?> uint64
-                            Marshal.WriteInt64(fieldPtr, int64 u64Value)
-                            
-                        | I8 -> 
-                            let i8Value = value :?> sbyte
-                            Marshal.WriteByte(fieldPtr, byte i8Value)
-                            
-                        | I16 -> 
-                            let i16Value = value :?> int16
-                            Marshal.WriteInt16(fieldPtr, i16Value)
-                            
-                        | I32 -> 
-                            let i32Value = value :?> int32
-                            Marshal.WriteInt32(fieldPtr, i32Value)
-                            
-                        | I64 -> 
-                            let i64Value = value :?> int64
-                            Marshal.WriteInt64(fieldPtr, i64Value)
-                            
-                        | F32 -> 
-                            let f32Value = value :?> float32
-                            Marshal.StructureToPtr(f32Value, fieldPtr, false)
-                            
-                        | F64 -> 
-                            let f64Value = value :?> float
-                            Marshal.StructureToPtr(f64Value, fieldPtr, false)
-                            
-                        | Bool -> 
-                            let boolValue = value :?> bool
-                            Marshal.WriteByte(fieldPtr, if boolValue then 1uy else 0uy)
-                            
-                        | String ->
-                            // String is stored as length + bytes
-                            let stringValue = value :?> string
-                            let bytes = System.Text.Encoding.UTF8.GetBytes(stringValue)
-                            let length = bytes.Length
-                            
-                            // Write length
-                            let lengthPtr = fieldPtr
-                            Marshal.WriteInt32(lengthPtr, length)
-                            
-                            // Write string data
-                            if length > 0 then
-                                let stringPtr = IntPtr.Add(lengthPtr, 4)
-                                Marshal.Copy(bytes, 0, stringPtr, 
-                                            min length (int fieldOffset.Size - 4))
+                let fieldOffset = int (view.Memory.Offset + fieldOffset.Offset)
+                
+                // Based on the field type, encode the value
+                match fieldOffset.Type with
+                | Primitive primType ->
+                    match primType with
+                    | U8 -> 
+                        let byteValue = value :?> byte
+                        writeByte view.Memory.Data fieldOffset byteValue
+                        
+                    | U16 -> 
+                        let u16Value = value :?> uint16
+                        writeUnmanaged<uint16> view.Memory.Data fieldOffset u16Value
+                        
+                    | U32 -> 
+                        let u32Value = value :?> uint32
+                        writeUnmanaged<uint32> view.Memory.Data fieldOffset u32Value
+                        
+                    | U64 -> 
+                        let u64Value = value :?> uint64
+                        writeUnmanaged<uint64> view.Memory.Data fieldOffset u64Value
+                        
+                    | I8 -> 
+                        let i8Value = value :?> sbyte
+                        writeUnmanaged<sbyte> view.Memory.Data fieldOffset i8Value
+                        
+                    | I16 -> 
+                        let i16Value = value :?> int16
+                        writeUnmanaged<int16> view.Memory.Data fieldOffset i16Value
+                        
+                    | I32 -> 
+                        let i32Value = value :?> int32
+                        writeUnmanaged<int32> view.Memory.Data fieldOffset i32Value
+                        
+                    | I64 -> 
+                        let i64Value = value :?> int64
+                        writeUnmanaged<int64> view.Memory.Data fieldOffset i64Value
+                        
+                    | F32 -> 
+                        let f32Value = value :?> float32
+                        writeUnmanaged<float32> view.Memory.Data fieldOffset f32Value
+                        
+                    | F64 -> 
+                        let f64Value = value :?> float
+                        writeUnmanaged<float> view.Memory.Data fieldOffset f64Value
+                        
+                    | Bool -> 
+                        let boolValue = value :?> bool
+                        writeByte view.Memory.Data fieldOffset (if boolValue then 1uy else 0uy)
+                        
+                    | String ->
+                        // String is stored as length + bytes
+                        let stringValue = value :?> string
+                        let bytes = BAREWire.Core.Utf8.getBytes stringValue
+                        let length = bytes.Length
+                        
+                        // Write length
+                        writeUnmanaged<int32> view.Memory.Data fieldOffset length
+                        
+                        // Write string data
+                        if length > 0 then
+                            for i = 0 to length - 1 do
+                                if fieldOffset + 4 + i < view.Memory.Data.Length then
+                                    writeByte view.Memory.Data (fieldOffset + 4 + i) bytes.[i]
                                 
-                        | _ ->
-                            // For other types, we'd need to implement specific encoding logic
-                            return Error (encodingError $"Encoding not implemented for type {fieldOffset.Type}")
-                            
                     | _ ->
-                        // For complex types, we'd need to implement custom encoding logic
-                        // based on the schema and field type
-                        return Error (encodingError $"Encoding not implemented for complex types")
-                    
-                    Ok ()
-                finally
-                    if handle.IsAllocated then handle.Free()
+                        // For other types, we'd need to implement specific encoding logic
+                        return Error (encodingError $"Encoding not implemented for type {fieldOffset.Type}")
+                        
+                | _ ->
+                    // For complex types, we'd need to implement custom encoding logic
+                    // based on the schema and field type
+                    return Error (encodingError $"Encoding not implemented for complex types")
+                
+                Ok ()
                     
             with ex ->
                 Error (encodingError $"Failed to encode field {String.concat "." fieldPath}: {ex.Message}")

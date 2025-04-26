@@ -2,6 +2,8 @@ namespace BAREWire.Encoding
 
 open BAREWire.Core
 open BAREWire.Core.Error
+open BAREWire.Core.Binary
+open BAREWire.Core.Utf8
 
 /// <summary>
 /// Encoding functions for BARE types
@@ -121,7 +123,7 @@ module Encoder =
     /// <param name="buffer">The buffer to write to</param>
     /// <param name="value">The float32 value to write</param>
     let writeF32 (buffer: Buffer<'T>) (value: float32): unit =
-        let bits = BitConverter.SingleToInt32Bits(value)
+        let bits = singleToInt32Bits value
         writeI32 buffer bits
     
     /// <summary>
@@ -130,7 +132,7 @@ module Encoder =
     /// <param name="buffer">The buffer to write to</param>
     /// <param name="value">The double value to write</param>
     let writeF64 (buffer: Buffer<'T>) (value: float): unit =
-        let bits = BitConverter.DoubleToInt64Bits(value)
+        let bits = doubleToInt64Bits value
         writeI64 buffer bits
     
     /// <summary>
@@ -148,7 +150,7 @@ module Encoder =
     /// <param name="value">The string to write</param>
     let writeString (buffer: Buffer<'T>) (value: string): unit =
         // Get UTF-8 bytes
-        let bytes = Encoding.UTF8.GetBytes(value)
+        let bytes = getBytes value
         // Write length as uint
         writeUInt buffer (uint64 bytes.Length)
         // Write bytes

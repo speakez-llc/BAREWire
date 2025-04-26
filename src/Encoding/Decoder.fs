@@ -2,6 +2,8 @@ namespace BAREWire.Encoding
 
 open BAREWire.Core
 open BAREWire.Core.Error
+open BAREWire.Core.Binary
+open BAREWire.Core.Utf8
 
 /// <summary>
 /// Decoding functions for BARE types
@@ -169,7 +171,7 @@ module Decoder =
     /// <returns>The float32 value and the new offset</returns>
     let readF32 (memory: Memory<'T, 'region>) (offset: int<offset>): float32 * int<offset> =
         let bits, newOffset = readI32 memory offset
-        let value = BitConverter.Int32BitsToSingle(bits)
+        let value = int32BitsToSingle bits
         value, newOffset
     
     /// <summary>
@@ -180,7 +182,7 @@ module Decoder =
     /// <returns>The double value and the new offset</returns>
     let readF64 (memory: Memory<'T, 'region>) (offset: int<offset>): float * int<offset> =
         let bits, newOffset = readI64 memory offset
-        let value = BitConverter.Int64BitsToDouble(bits)
+        let value = int64BitsToDouble bits
         value, newOffset
     
     /// <summary>
@@ -210,7 +212,7 @@ module Decoder =
         // Read bytes
         let bytes = Array.init (int length) (fun i -> 
             memory.Data.[int (memory.Offset + currentOffset) + i])
-        let str = Encoding.UTF8.GetString(bytes)
+        let str = getString bytes
         
         str, currentOffset + (int length * 1<offset>)
     

@@ -4,6 +4,8 @@ open FSharp.NativeInterop
 open BAREWire.Core
 open BAREWire.Core.Error
 open BAREWire.Core.Memory
+open BAREWire.Core.Time
+open BAREWire.Core.Uuid
 open BAREWire.IPC
 open BAREWire.Memory.Mapping
 open BAREWire.Platform.Common.Interfaces
@@ -15,19 +17,81 @@ open BAREWire.Platform.Common.Interfaces
 /// </summary>
 module InMemory =
     /// <summary>
+    /// Custom handle type to replace System.IntPtr
+    /// </summary>
+    type Handle = int64
+    
+    /// <summary>
+    /// Null handle (equivalent to IntPtr.Zero)
+    /// </summary>
+    let NULL_HANDLE = 0L
+    
+    /// <summary>
+    /// Invalid handle (equivalent to INVALID_HANDLE_VALUE)
+    /// </summary>
+    let INVALID_HANDLE = -1L
+    
+    /// <summary>
+    /// Simple buffer implementation to replace ResizeArray
+    /// </summary>
+    type Buffer private (initialCapacity: int) =
+        let mutable data = Array.zeroCreate<byte> initialCapacity
+        let mutable count = 0
+        
+        /// <summary>Gets the current count of elements</summary>
+        member _.Count = count
+        
+        /// <summary>Gets the underlying data array</summary>
+        member _.Data = data
+        
+        /// <summary>Gets an element at the specified index</summary>
+        member _.Item
+            with get(index: int): byte =
+                if index < 0 || index >= count then
+                    failwith "Index out of range"
+                data.[index]
+                
+        /// <summary>Adds an element to the buffer</summary>
+        member _.Add(item: byte): unit =
+            // Resize if needed
+            if count = data.Length then
+                let newSize = max 4 (data.Length * 2)
+                let newData = Array.zeroCreate<byte> newSize
+                Array.Copy(data, newData, count)
+                data <- newData
+                
+            data.[count] <- item
+            count <- count + 1
+            
+        /// <summary>Removes elements from the buffer</summary>
+        member _.RemoveRange(index: int, count': int): unit =
+            if index < 0 || count' < 0 || index + count' > count then
+                failwith "Invalid range"
+                
+            // Shift elements
+            for i = index to count - count' - 1 do
+                data.[i] <- data.[i + count']
+                
+            count <- count - count'
+            
+        /// <summary>Creates a new buffer</summary>
+        static member Create(capacity: int): Buffer =
+            Buffer(capacity)
+    
+    /// <summary>
     /// In-memory storage for simulating platform-specific resources
     /// </summary>
     module private Storage =
         /// <summary>Memory mapping information</summary>
         type MemoryMapping = {
             /// <summary>The simulated handle</summary>
-            Handle: nativeint
+            Handle: Handle
             
             /// <summary>The memory data</summary>
             Data: byte[]
             
             /// <summary>The base address</summary>
-            Address: nativeint
+            Address: Handle
             
             /// <summary>The mapping type</summary>
             MappingType: MappingType
@@ -39,13 +103,13 @@ module InMemory =
         /// <summary>Named pipe information</summary>
         type NamedPipe = {
             /// <summary>The simulated handle</summary>
-            Handle: nativeint
+            Handle: Handle
             
             /// <summary>The pipe name</summary>
             Name: string
             
             /// <summary>The buffer for pipe data</summary>
-            Buffer: ResizeArray<byte>
+            Buffer: Buffer
             
             /// <summary>The direction of data flow</summary>
             Direction: NamedPipe.PipeDirection
@@ -60,7 +124,7 @@ module InMemory =
         /// <summary>Shared memory information</summary>
         type SharedMemory = {
             /// <summary>The simulated handle</summary>
-            Handle: nativeint
+            Handle: Handle
             
             /// <summary>The shared memory name</summary>
             Name: string
@@ -69,7 +133,7 @@ module InMemory =
             Data: byte[]
             
             /// <summary>The base address</summary>
-            Address: nativeint
+            Address: Handle
             
             /// <summary>The access type</summary>
             AccessType: AccessType
@@ -78,7 +142,7 @@ module InMemory =
         /// <summary>Mutex information</summary>
         type Mutex = {
             /// <summary>The simulated handle</summary>
-            Handle: nativeint
+            Handle: Handle
             
             /// <summary>The mutex name</summary>
             Name: string
@@ -93,7 +157,7 @@ module InMemory =
         /// <summary>Semaphore information</summary>
         type Semaphore = {
             /// <summary>The simulated handle</summary>
-            Handle: nativeint
+            Handle: Handle
             
             /// <summary>The semaphore name</summary>
             Name: string
@@ -108,7 +172,7 @@ module InMemory =
         /// <summary>Socket information</summary>
         type Socket = {
             /// <summary>The simulated handle</summary>
-            Handle: nativeint
+            Handle: Handle
             
             /// <summary>The address family</summary>
             AddressFamily: int
@@ -141,49 +205,49 @@ module InMemory =
             mutable RemotePort: int
             
             /// <summary>The data buffer</summary>
-            Buffer: ResizeArray<byte>
+            Buffer: Buffer
         }
         
         /// <summary>Active memory mappings</summary>
-        let mutable memoryMappings: Map<nativeint, MemoryMapping> = Map.empty
+        let mutable memoryMappings: Map<Handle, MemoryMapping> = Map.empty
         
         /// <summary>Active file mappings</summary>
-        let mutable fileMappings: Map<nativeint, MemoryMapping> = Map.empty
+        let mutable fileMappings: Map<Handle, MemoryMapping> = Map.empty
         
         /// <summary>Active named pipes</summary>
         let mutable namedPipes: Map<string, NamedPipe> = Map.empty
         
         /// <summary>Active named pipe handles</summary>
-        let mutable pipeHandles: Map<nativeint, string> = Map.empty
+        let mutable pipeHandles: Map<Handle, string> = Map.empty
         
         /// <summary>Active shared memory regions</summary>
         let mutable sharedMemory: Map<string, SharedMemory> = Map.empty
         
         /// <summary>Active shared memory handles</summary>
-        let mutable sharedMemoryHandles: Map<nativeint, string> = Map.empty
+        let mutable sharedMemoryHandles: Map<Handle, string> = Map.empty
         
         /// <summary>Active mutexes</summary>
         let mutable mutexes: Map<string, Mutex> = Map.empty
         
         /// <summary>Active mutex handles</summary>
-        let mutable mutexHandles: Map<nativeint, string> = Map.empty
+        let mutable mutexHandles: Map<Handle, string> = Map.empty
         
         /// <summary>Active semaphores</summary>
         let mutable semaphores: Map<string, Semaphore> = Map.empty
         
         /// <summary>Active semaphore handles</summary>
-        let mutable semaphoreHandles: Map<nativeint, string> = Map.empty
+        let mutable semaphoreHandles: Map<Handle, string> = Map.empty
         
         /// <summary>Active sockets</summary>
-        let mutable sockets: Map<nativeint, Socket> = Map.empty
+        let mutable sockets: Map<Handle, Socket> = Map.empty
         
         /// <summary>Next handle value (incremented for each new handle)</summary>
-        let mutable nextHandle = 1n
+        let mutable nextHandle = 1L
         
         /// <summary>Gets the next unique handle</summary>
         let getNextHandle () =
             let handle = nextHandle
-            nextHandle <- nextHandle + 1n
+            nextHandle <- nextHandle + 1L
             handle
         
         /// <summary>Lock object for thread synchronization</summary>
@@ -306,7 +370,7 @@ module InMemory =
                             let pipe = {
                                 Handle = handle
                                 Name = name
-                                Buffer = ResizeArray<byte>()
+                                Buffer = Buffer.Create(int bufferSize)
                                 Direction = direction
                                 Mode = mode
                                 IsConnected = false
@@ -536,6 +600,251 @@ module InMemory =
                     with _ ->
                         false
                 )
+    
+    /// <summary>
+    /// In-memory implementation of the network provider
+    /// </summary>
+    type InMemoryNetworkProvider() =
+        interface IPlatformNetwork with
+            member this.CreateSocket addressFamily socketType protocolType =
+                Storage.withLock (fun () ->
+                    try
+                        // Create a new socket
+                        let handle = Storage.getNextHandle()
+                        
+                        let socket = {
+                            Handle = handle
+                            AddressFamily = int addressFamily
+                            SocketType = int socketType
+                            ProtocolType = int protocolType
+                            IsBound = false
+                            IsListening = false
+                            IsConnected = false
+                            LocalAddress = ""
+                            LocalPort = 0
+                            RemoteAddress = ""
+                            RemotePort = 0
+                            Buffer = Buffer.Create(1024) // Default buffer size
+                        }
+                        
+                        // Store the socket
+                        Storage.sockets <- Storage.sockets.Add(handle, socket)
+                        
+                        Ok handle
+                    with ex ->
+                        Error (invalidValueError $"Failed to create socket: {ex.Message}")
+                )
+            
+            member this.BindSocket handle address port =
+                Storage.withLock (fun () ->
+                    try
+                        // Find the socket
+                        match Storage.sockets.TryFind(handle) with
+                        | Some socket ->
+                            // Check if the socket is already bound
+                            if socket.IsBound then
+                                Error (invalidValueError "Socket is already bound")
+                            else
+                                // Bind the socket
+                                let updatedSocket = { 
+                                    socket with 
+                                        IsBound = true
+                                        LocalAddress = address
+                                        LocalPort = port
+                                }
+                                
+                                Storage.sockets <- Storage.sockets.Add(handle, updatedSocket)
+                                
+                                Ok ()
+                        | None ->
+                            Error (invalidValueError $"Invalid socket handle: {handle}")
+                    with ex ->
+                        Error (invalidValueError $"Failed to bind socket: {ex.Message}")
+                )
+            
+            member this.ListenSocket handle backlog =
+                Storage.withLock (fun () ->
+                    try
+                        // Find the socket
+                        match Storage.sockets.TryFind(handle) with
+                        | Some socket ->
+                            // Check if the socket is bound
+                            if not socket.IsBound then
+                                Error (invalidValueError "Socket is not bound")
+                            else
+                                // Start listening
+                                let updatedSocket = { 
+                                    socket with 
+                                        IsListening = true
+                                }
+                                
+                                Storage.sockets <- Storage.sockets.Add(handle, updatedSocket)
+                                
+                                Ok ()
+                        | None ->
+                            Error (invalidValueError $"Invalid socket handle: {handle}")
+                    with ex ->
+                        Error (invalidValueError $"Failed to listen on socket: {ex.Message}")
+                )
+            
+            member this.AcceptSocket handle =
+                Storage.withLock (fun () ->
+                    try
+                        // Find the socket
+                        match Storage.sockets.TryFind(handle) with
+                        | Some socket ->
+                            // Check if the socket is listening
+                            if not socket.IsListening then
+                                Error (invalidValueError "Socket is not listening")
+                            else
+                                // Create a new socket for the client
+                                let clientHandle = Storage.getNextHandle()
+                                
+                                // In a real implementation, we would wait for a client connection
+                                // For simplicity, we'll create a dummy client
+                                let clientAddress = "127.0.0.1"
+                                let clientPort = 12345
+                                
+                                let clientSocket = {
+                                    Handle = clientHandle
+                                    AddressFamily = socket.AddressFamily
+                                    SocketType = socket.SocketType
+                                    ProtocolType = socket.ProtocolType
+                                    IsBound = true
+                                    IsListening = false
+                                    IsConnected = true
+                                    LocalAddress = socket.LocalAddress
+                                    LocalPort = socket.LocalPort
+                                    RemoteAddress = clientAddress
+                                    RemotePort = clientPort
+                                    Buffer = Buffer.Create(1024) // Default buffer size
+                                }
+                                
+                                // Store the client socket
+                                Storage.sockets <- Storage.sockets.Add(clientHandle, clientSocket)
+                                
+                                Ok (clientHandle, clientAddress, clientPort)
+                        | None ->
+                            Error (invalidValueError $"Invalid socket handle: {handle}")
+                    with ex ->
+                        Error (invalidValueError $"Failed to accept connection: {ex.Message}")
+                )
+            
+            member this.ConnectSocket handle address port =
+                Storage.withLock (fun () ->
+                    try
+                        // Find the socket
+                        match Storage.sockets.TryFind(handle) with
+                        | Some socket ->
+                            // Check if the socket is already connected
+                            if socket.IsConnected then
+                                Error (invalidValueError "Socket is already connected")
+                            else
+                                // Connect the socket
+                                let updatedSocket = { 
+                                    socket with 
+                                        IsConnected = true
+                                        RemoteAddress = address
+                                        RemotePort = port
+                                }
+                                
+                                Storage.sockets <- Storage.sockets.Add(handle, updatedSocket)
+                                
+                                Ok ()
+                        | None ->
+                            Error (invalidValueError $"Invalid socket handle: {handle}")
+                    with ex ->
+                        Error (invalidValueError $"Failed to connect socket: {ex.Message}")
+                )
+            
+            member this.SendSocket handle data offset count flags =
+                Storage.withLock (fun () ->
+                    try
+                        // Find the socket
+                        match Storage.sockets.TryFind(handle) with
+                        | Some socket ->
+                            // Check if the socket is connected
+                            if not socket.IsConnected then
+                                Error (invalidValueError "Socket is not connected")
+                            else
+                                // In a real implementation, we would send data to the remote endpoint
+                                // For this simulation, we'll just store it in the socket buffer
+                                for i = offset to offset + count - 1 do
+                                    socket.Buffer.Add(data.[i])
+                                
+                                Ok count
+                        | None ->
+                            Error (invalidValueError $"Invalid socket handle: {handle}")
+                    with ex ->
+                        Error (invalidValueError $"Failed to send data: {ex.Message}")
+                )
+            
+            member this.ReceiveSocket handle buffer offset count flags =
+                Storage.withLock (fun () ->
+                    try
+                        // Find the socket
+                        match Storage.sockets.TryFind(handle) with
+                        | Some socket ->
+                            // Check if the socket is connected
+                            if not socket.IsConnected then
+                                Error (invalidValueError "Socket is not connected")
+                            // Check if there's data available
+                            elif socket.Buffer.Count = 0 then
+                                Ok 0 // No data available
+                            else
+                                // Read data from the buffer
+                                let bytesToRead = min socket.Buffer.Count count
+                                
+                                for i = 0 to bytesToRead - 1 do
+                                    buffer.[offset + i] <- socket.Buffer.[i]
+                                
+                                // Remove read data from the buffer
+                                socket.Buffer.RemoveRange(0, bytesToRead)
+                                
+                                Ok bytesToRead
+                        | None ->
+                            Error (invalidValueError $"Invalid socket handle: {handle}")
+                    with ex ->
+                        Error (invalidValueError $"Failed to receive data: {ex.Message}")
+                )
+            
+            member this.CloseSocket handle =
+                Storage.withLock (fun () ->
+                    try
+                        // Find the socket
+                        match Storage.sockets.TryFind(handle) with
+                        | Some _ ->
+                            // Remove the socket
+                            Storage.sockets <- Storage.sockets.Remove(handle)
+                            
+                            Ok ()
+                        | None ->
+                            Error (invalidValueError $"Invalid socket handle: {handle}")
+                    with ex ->
+                        Error (invalidValueError $"Failed to close socket: {ex.Message}")
+                )
+            
+            member this.Poll handle timeout =
+                Storage.withLock (fun () ->
+                    try
+                        // Find the socket
+                        match Storage.sockets.TryFind(handle) with
+                        | Some socket ->
+                            // Check if there's data available
+                            Ok (socket.Buffer.Count > 0)
+                        | None ->
+                            Error (invalidValueError $"Invalid socket handle: {handle}")
+                    with ex ->
+                        Error (invalidValueError $"Failed to poll socket: {ex.Message}")
+                )
+            
+            member this.ResolveHostName hostName =
+                // For in-memory simulation, we'll return a dummy IP address
+                try
+                    let addresses = [| "127.0.0.1" |]
+                    Ok addresses
+                with ex ->
+                    Error (invalidValueError $"Failed to resolve host name: {ex.Message}")
     
     /// <summary>
     /// In-memory implementation of the synchronization provider
@@ -880,300 +1189,3 @@ module InMemory =
                     with ex ->
                         Error (invalidValueError $"Failed to close semaphore: {ex.Message}")
                 )
-    
-    /// <summary>
-    /// In-memory implementation of the network provider
-    /// </summary>
-    type InMemoryNetworkProvider() =
-        interface IPlatformNetwork with
-            member this.CreateSocket addressFamily socketType protocolType =
-                Storage.withLock (fun () ->
-                    try
-                        // Create a new socket
-                        let handle = Storage.getNextHandle()
-                        
-                        let socket = {
-                            Handle = handle
-                            AddressFamily = int addressFamily
-                            SocketType = int socketType
-                            ProtocolType = int protocolType
-                            IsBound = false
-                            IsListening = false
-                            IsConnected = false
-                            LocalAddress = ""
-                            LocalPort = 0
-                            RemoteAddress = ""
-                            RemotePort = 0
-                            Buffer = ResizeArray<byte>()
-                        }
-                        
-                        // Store the socket
-                        Storage.sockets <- Storage.sockets.Add(handle, socket)
-                        
-                        Ok handle
-                    with ex ->
-                        Error (invalidValueError $"Failed to create socket: {ex.Message}")
-                )
-            
-            member this.BindSocket handle address port =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            // Check if the socket is already bound
-                            if socket.IsBound then
-                                Error (invalidValueError "Socket is already bound")
-                            else
-                                // Bind the socket
-                                let updatedSocket = { 
-                                    socket with 
-                                        IsBound = true
-                                        LocalAddress = address
-                                        LocalPort = port
-                                }
-                                
-                                Storage.sockets <- Storage.sockets.Add(handle, updatedSocket)
-                                
-                                Ok ()
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to bind socket: {ex.Message}")
-                )
-            
-            member this.ListenSocket handle backlog =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            // Check if the socket is bound
-                            if not socket.IsBound then
-                                Error (invalidValueError "Socket is not bound")
-                            else
-                                // Start listening
-                                let updatedSocket = { 
-                                    socket with 
-                                        IsListening = true
-                                }
-                                
-                                Storage.sockets <- Storage.sockets.Add(handle, updatedSocket)
-                                
-                                Ok ()
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to listen on socket: {ex.Message}")
-                )
-            
-            member this.AcceptSocket handle =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            // Check if the socket is listening
-                            if not socket.IsListening then
-                                Error (invalidValueError "Socket is not listening")
-                            else
-                                // Create a new socket for the client
-                                let clientHandle = Storage.getNextHandle()
-                                
-                                // In a real implementation, we would wait for a client connection
-                                // For simplicity, we'll create a dummy client
-                                let clientAddress = "127.0.0.1"
-                                let clientPort = 12345
-                                
-                                let clientSocket = {
-                                    Handle = clientHandle
-                                    AddressFamily = socket.AddressFamily
-                                    SocketType = socket.SocketType
-                                    ProtocolType = socket.ProtocolType
-                                    IsBound = true
-                                    IsListening = false
-                                    IsConnected = true
-                                    LocalAddress = socket.LocalAddress
-                                    LocalPort = socket.LocalPort
-                                    RemoteAddress = clientAddress
-                                    RemotePort = clientPort
-                                    Buffer = ResizeArray<byte>()
-                                }
-                                
-                                // Store the client socket
-                                Storage.sockets <- Storage.sockets.Add(clientHandle, clientSocket)
-                                
-                                Ok (clientHandle, clientAddress, clientPort)
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to accept connection: {ex.Message}")
-                )
-            
-            member this.ConnectSocket handle address port =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            // Check if the socket is already connected
-                            if socket.IsConnected then
-                                Error (invalidValueError "Socket is already connected")
-                            else
-                                // Connect the socket
-                                let updatedSocket = { 
-                                    socket with 
-                                        IsConnected = true
-                                        RemoteAddress = address
-                                        RemotePort = port
-                                }
-                                
-                                Storage.sockets <- Storage.sockets.Add(handle, updatedSocket)
-                                
-                                Ok ()
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to connect socket: {ex.Message}")
-                )
-            
-            member this.SendSocket handle data offset count flags =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            // Check if the socket is connected
-                            if not socket.IsConnected then
-                                Error (invalidValueError "Socket is not connected")
-                            else
-                                // In a real implementation, we would send data to the remote endpoint
-                                // For this simulation, we'll just store it in the socket buffer
-                                for i = offset to offset + count - 1 do
-                                    socket.Buffer.Add(data.[i])
-                                
-                                Ok count
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to send data: {ex.Message}")
-                )
-            
-            member this.ReceiveSocket handle buffer offset count flags =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            // Check if the socket is connected
-                            if not socket.IsConnected then
-                                Error (invalidValueError "Socket is not connected")
-                            // Check if there's data available
-                            elif socket.Buffer.Count = 0 then
-                                Ok 0 // No data available
-                            else
-                                // Read data from the buffer
-                                let bytesToRead = min socket.Buffer.Count count
-                                
-                                for i = 0 to bytesToRead - 1 do
-                                    buffer.[offset + i] <- socket.Buffer.[i]
-                                
-                                // Remove read data from the buffer
-                                socket.Buffer.RemoveRange(0, bytesToRead)
-                                
-                                Ok bytesToRead
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to receive data: {ex.Message}")
-                )
-            
-            member this.CloseSocket handle =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some _ ->
-                            // Remove the socket
-                            Storage.sockets <- Storage.sockets.Remove(handle)
-                            
-                            Ok ()
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to close socket: {ex.Message}")
-                )
-            
-            member this.ShutdownSocket handle how =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            // In a real implementation, this would shut down part of the connection
-                            // For simplicity, we'll just mark it as not connected
-                            let updatedSocket = { socket with IsConnected = false }
-                            Storage.sockets <- Storage.sockets.Add(handle, updatedSocket)
-                            
-                            Ok ()
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to shutdown socket: {ex.Message}")
-                )
-            
-            member this.SetSocketOption handle level optionName optionValue =
-                // In-memory simulation doesn't need to set socket options
-                Ok ()
-            
-            member this.GetSocketOption handle level optionName optionValue =
-                // In-memory simulation doesn't need to get socket options
-                Ok optionValue.Length
-            
-            member this.GetLocalEndPoint handle =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            Ok (socket.LocalAddress, socket.LocalPort)
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to get local endpoint: {ex.Message}")
-                )
-            
-            member this.GetRemoteEndPoint handle =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            Ok (socket.RemoteAddress, socket.RemotePort)
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to get remote endpoint: {ex.Message}")
-                )
-            
-            member this.Poll handle timeout =
-                Storage.withLock (fun () ->
-                    try
-                        // Find the socket
-                        match Storage.sockets.TryFind(handle) with
-                        | Some socket ->
-                            // Check if there's data available
-                            Ok (socket.Buffer.Count > 0)
-                        | None ->
-                            Error (invalidValueError $"Invalid socket handle: {handle}")
-                    with ex ->
-                        Error (invalidValueError $"Failed to poll socket: {ex.Message}")
-                )
-            
-            member this.ResolveHostName hostName =
-                // For in-memory simulation, we'll return a dummy IP address
-                try
-                    let addresses = [| "127.0.0.1" |]
-                    Ok addresses
-                with ex ->
-                    Error (invalidValueError $"Failed to resolve host name: {ex.Message}")
