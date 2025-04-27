@@ -1,5 +1,14 @@
 # BAREWire
 
+<table>
+  <tr>
+    <td align="center" width="100%">
+      <strong>⚠️ Caution: Experimental ⚠️</strong><br>
+      This project is in early development and not ready for production use.
+    </td>
+  </tr>
+</table>
+
 BAREWire is a comprehensive F# library for efficient binary data encoding, memory mapping, and inter-process communication. It implements the [BARE (Binary Application Record Encoding)](https://baremessages.org/) protocol with zero-copy operations, strong type safety, and modular components for use in high-performance applications.
 
 [![NuGet](https://img.shields.io/nuget/v/BAREWire.svg)](https://www.nuget.org/packages/BAREWire/)
