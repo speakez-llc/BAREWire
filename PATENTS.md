@@ -1,6 +1,6 @@
 # Patent Notice for BAREWire
 
-This file contains patent notices and license grants for the BAREWire project.
+This file contains pending patent notices and license grants for the BAREWire project.
 
 ## Patents
 
