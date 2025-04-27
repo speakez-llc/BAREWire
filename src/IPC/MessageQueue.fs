@@ -16,7 +16,7 @@ module MessageQueue =
         /// <summary>
         /// Unique message identifier
         /// </summary>
-        Id: Guid
+        Id: Uuid
         
         /// <summary>
         /// Message type identifier

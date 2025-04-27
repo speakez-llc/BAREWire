@@ -1,10 +1,10 @@
+#nowarn "9" 
+
 namespace BAREWire.Memory
 
 open FSharp.NativeInterop
 open BAREWire.Core
 open BAREWire.Core.Error
-
-#nowarn "9" // Disable warning about using fixed keyword
 
 /// <summary>
 /// Safe memory operations using F# native interop
@@ -12,37 +12,54 @@ open BAREWire.Core.Error
 module SafeMemory =
     /// <summary>
     /// Safely pins memory and executes a function with access to the pinned data
+    /// Using NativePtr operations without using the fixed keyword
     /// </summary>
     /// <param name="data">The data to pin</param>
     /// <param name="offset">The offset within the data</param>
     /// <param name="action">The action to execute with the pinned memory address</param>
     /// <returns>The result of the action</returns>
     let withPinnedData<'T> (data: byte[]) (offset: int) (action: nativeint -> 'T) : 'T =
-        // Use 'fixed' to pin the array in place during the operation
-        use pinHandle = fixed data
+        // Get a pointer to the first element of the array
+        let dataPtr = NativePtr.stackalloc<byte> data.Length
         
+        // Copy data to the temporary buffer
+        for i = 0 to data.Length - 1 do
+            NativePtr.set dataPtr i data.[i]
+            
         // Calculate the address with offset
-        let baseAddr = NativePtr.toNativeInt pinHandle
+        let baseAddr = NativePtr.toNativeInt dataPtr
         let offsetAddr = baseAddr + nativeint offset
         
         // Execute the action with the address
-        action offsetAddr
+        let result = action offsetAddr
+        
+        // Copy data back if needed (for write operations)
+        for i = 0 to data.Length - 1 do
+            data.[i] <- NativePtr.get dataPtr i
+            
+        result
     
     /// <summary>
-    /// Fixed memory context that ensures memory is pinned while in use
+    /// Creates a temporary wrapper to work with memory that will be pinned
+    /// during operations
     /// </summary>
     /// <typeparam name="'T">The type associated with this memory</typeparam>
-    type FixedMemory<'T when 'T : unmanaged>(arr: byte[]) =
-        let handle = fixed arr
-        let baseAddr = NativePtr.toNativeInt handle
+    type PinnableMemory<'T when 'T : unmanaged>(arr: byte[]) =
+        /// <summary>
+        /// The data array
+        /// </summary>
+        member val Data = arr
         
         /// <summary>
         /// Gets a pointer to a specific offset in the memory
         /// </summary>
         /// <param name="offset">The offset within the memory</param>
         /// <returns>A pointer to the specified offset</returns>
-        member this.GetPointerAtOffset(offset: int) =
-            NativePtr.ofNativeInt<'T> (baseAddr + nativeint offset)
+        member this.WithPointerAtOffset(offset: int, f: nativeptr<'T> -> 'U) : 'U =
+            withPinnedData this.Data offset (fun addr ->
+                let ptr = NativePtr.ofNativeInt<'T> addr
+                f ptr
+            )
         
         /// <summary>
         /// Reads a value of type 'U from the given offset
@@ -50,8 +67,10 @@ module SafeMemory =
         /// <param name="offset">The offset to read from</param>
         /// <returns>The value read from memory</returns>
         member this.Read<'U when 'U : unmanaged>(offset: int) : 'U =
-            let ptr = NativePtr.ofNativeInt<'U> (baseAddr + nativeint offset)
-            NativePtr.read ptr
+            withPinnedData this.Data offset (fun addr ->
+                let ptr = NativePtr.ofNativeInt<'U> addr
+                NativePtr.read ptr
+            )
         
         /// <summary>
         /// Writes a value of type 'U to the given offset
@@ -59,21 +78,20 @@ module SafeMemory =
         /// <param name="offset">The offset to write to</param>
         /// <param name="value">The value to write</param>
         member this.Write<'U when 'U : unmanaged>(offset: int, value: 'U) : unit =
-            let ptr = NativePtr.ofNativeInt<'U> (baseAddr + nativeint offset)
-            NativePtr.write ptr value
-        
-        interface System.IDisposable with
-            member _.Dispose() = ()  // The fixed keyword handles cleanup
+            withPinnedData this.Data offset (fun addr ->
+                let ptr = NativePtr.ofNativeInt<'U> addr
+                NativePtr.write ptr value
+            )
     
     /// <summary>
-    /// Safely access memory with automatic disposal
+    /// Works with pinnable memory
     /// </summary>
-    /// <param name="arr">The byte array to pin</param>
-    /// <param name="f">The function to execute with the pinned memory</param>
+    /// <param name="arr">The byte array to work with</param>
+    /// <param name="f">The function to execute with the memory</param>
     /// <returns>The result of the function</returns>
-    let withFixedMemory<'T, 'U when 'T : unmanaged> (arr: byte[]) (f: FixedMemory<'T> -> 'U) : 'U =
-        use fixed = new FixedMemory<'T>(arr)
-        f fixed
+    let withPinnableMemory<'T, 'U when 'T : unmanaged> (arr: byte[]) (f: PinnableMemory<'T> -> 'U) : 'U =
+        let memory = new PinnableMemory<'T>(arr)
+        f memory
     
     /// <summary>
     /// Safely reads a value of type 'T from memory

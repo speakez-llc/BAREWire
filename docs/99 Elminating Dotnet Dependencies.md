@@ -1,12 +1,12 @@
-# Architectural Memo: Eliminating .NET Dependencies in BAREWire
+# Architectural Memo: How We Eliminated .NET Dependencies in BAREWire
 
 ## 1. Executive Summary
 
-BAREWire is designed as a binary serialization and IPC library for F#, but currently contains numerous dependencies on .NET Core/BCL. To support the Fidelity Framework's MLIR/LLVM compilation path (Project "Firefly"), we must eliminate these dependencies in favor of pure F# implementations. This memo identifies these dependencies and proposes implementation strategies that would maintain functionality while ensuring compatibility with a native compilation approach.
+BAREWire is designed as a binary serialization and IPC library for F#, but started with numerous dependencies on .NET Core/BCL. To support the Fidelity Framework's MLIR/LLVM compilation target for native operation (Project "Firefly"), we eliminated these dependencies in favor of direct F# implementations. This memo identifies these dependencies and proposes implementation strategies that would maintain functionality while ensuring compatibility with a native compilation approach.
 
-## 2. Current Dependency Analysis
+## 2. Initial Dependency Analysis
 
-After thorough code analysis, we've identified the following .NET dependencies:
+After thorough code analysis, we identified the following .NET dependencies:
 
 ```mermaid
 %%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#242424', 'primaryTextColor': '#fff', 'primaryBorderColor': '#888', 'lineColor': '#d3d3d3', 'secondaryColor': '#2b2b2b', 'tertiaryColor': '#333' }}}%%
@@ -16,7 +16,6 @@ flowchart TB
         SystemText["System.Text.Encoding"]
         BitConverter["System.BitConverter"]
         Marshal["System.Runtime.InteropServices.Marshal"]
-        GCHandle["System.Runtime.InteropServices.GCHandle"]
         DateTime["System.DateTime/DateTimeOffset"]
         Guid["System.Guid"]
         Socket["System.Net Socket APIs"]
@@ -35,7 +34,6 @@ flowchart TB
     BitConverter --> Encoding
     BitConverter --> Network
     Marshal --> Memory
-    GCHandle --> Memory
     DateTime --> IPC
     Guid --> IPC
     Guid --> Network
@@ -295,7 +293,7 @@ For a truly platform-independent implementation, this would need to be part of t
 let id = Guid.NewGuid()
 ```
 
-**Proposed Solution:**
+**Our Initial Solution:**
 Implement a UUID generator based on RFC 4122:
 
 ```fsharp
@@ -404,7 +402,7 @@ module NetworkAbstraction =
 
 ## 4. Platform Abstraction Layer
 
-The most challenging aspect of removing .NET dependencies is implementing platform-specific operations like networking, file I/O, and time functions. We need a comprehensive platform abstraction layer:
+The most challenging aspect of removing .NET dependencies is implementing platform-specific operations like networking, file I/O, and time functions. We will need a comprehensive platform abstraction layer, and this is a start:
 
 ```mermaid
 %%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#242424', 'primaryTextColor': '#fff', 'primaryBorderColor': '#888', 'lineColor': '#d3d3d3', 'secondaryColor': '#2b2b2b', 'tertiaryColor': '#333' }}}%%
@@ -462,11 +460,11 @@ flowchart TB
    - Windows using Win32 API
    - Linux using syscalls
    - macOS using Darwin
-   - Embedded systems using minimal implementations
+   - Embedded systems using minimal implementations (TBD)
    - Web using WebAssembly and browser APIs
 
-4. **Integration with Fidelity**: Work with the Fidelity framework to ensure compatibility with the MLIR/LLVM compilation path.
+4. **Integration with Farscape**: Work with the The Farscape P/Invoke and FFI binding generator to ensure compatibility with platforms such as STM32 and related edge devices to map operations into the MLIR/LLVM compilation path.
 
 ## 6. Conclusion
 
-Removing .NET dependencies from BAREWire is feasible, but requires careful reimplementation of core functionality using pure F# solutions. The most challenging aspects involve platform-specific operations that will require a well-designed platform abstraction layer. By following the proposed implementation strategy, BAREWire can be made compatible with the Fidelity Framework's MLIR/LLVM compilation path while maintaining its functionality and type safety features.
+Removing .NET dependencies from BAREWire is feasible, but requires careful re-implementation of core functionality using direct F# solutions. The most challenging aspects involve platform-specific operations that will require a well-designed platform abstraction layer. By following the proposed implementation strategy, BAREWire has charted a course for native compatibility for the Fidelity Framework's MLIR/LLVM compilation path while maintaining its functionality and type safety features. Other adaptations are planned for .NET/C# and Fable support. However this initial implementation will stand as establishing an initial beachhead for native support of F#.

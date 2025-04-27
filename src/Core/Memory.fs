@@ -1,5 +1,6 @@
 namespace BAREWire.Core
 
+open System
 open BAREWire.Core
 
 /// <summary>
@@ -37,7 +38,7 @@ module Memory =
         /// Writes a span of bytes to the buffer and advances the position
         /// </summary>
         /// <param name="span">The span of bytes to write</param>
-        member inline this.WriteSpan(span: ReadOnlySpan<byte>): unit =
+        member inline this.WriteSpan(span: Span<byte>): unit =
             for i = 0 to span.Length - 1 do
                 this.Data.[int this.Position + i] <- span.[i]
             this.Position <- this.Position + (span.Length * 1<offset>)
@@ -107,7 +108,7 @@ module Memory =
              (length: int<bytes>) : Memory<'U, 'region> =
              
         if offset < 0<offset> || length < 0<bytes> || 
-           offset + length > memory.Length then
+           int offset * 1<bytes> + length > memory.Length then
             failwith "Slice exceeds memory region bounds"
             
         { Data = memory.Data
@@ -125,7 +126,7 @@ module Memory =
                 (memory: Memory<'T, 'region>) 
                 (offset: int<offset>) : byte =
                 
-        if offset < 0<offset> || offset >= memory.Length then
+        if offset < 0<offset> || int offset >= int memory.Length then
             failwith "Offset out of bounds"
             
         memory.Data.[int memory.Offset + int offset]
@@ -142,7 +143,7 @@ module Memory =
                  (offset: int<offset>) 
                  (value: byte) : unit =
                  
-        if offset < 0<offset> || offset >= memory.Length then
+        if offset < 0<offset> || int offset >= int memory.Length then
             failwith "Offset out of bounds"
             
         memory.Data.[int memory.Offset + int offset] <- value

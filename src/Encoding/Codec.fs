@@ -1,5 +1,5 @@
 namespace BAREWire.Encoding
-
+                    
 open FSharp.UMX
 open BAREWire.Core
 open BAREWire.Core.Error
@@ -10,6 +10,37 @@ open BAREWire.Encoding.Decoder
 /// Combined encoding and decoding operations for BARE types
 /// </summary>
 module Codec =
+    /// <summary>
+    /// Gets the value of a field from a record using reflection
+    /// </summary>
+    /// <param name="record">The record object</param>
+    /// <param name="fieldName">The name of the field to retrieve</param>
+    /// <returns>The field value as an object</returns>
+    /// <exception cref="System.Exception">Thrown when the field is not found</exception>
+    let getRecordField (record: obj) (fieldName: string): obj =
+        let recordType = record.GetType()
+        let property = recordType.GetProperty(fieldName)
+        if property <> null then
+            property.GetValue(record)
+        else
+            let field = recordType.GetField(fieldName)
+            if field <> null then
+                field.GetValue(record)
+            else
+                failwith $"Field or property '{fieldName}' not found on type '{recordType.FullName}'"
+                
+    /// <summary>
+    /// Creates a record from field values
+    /// </summary>
+    /// <param name="fieldValues">A map of field names to values</param>
+    /// <returns>A record instance with the specified fields</returns>
+    /// <remarks>
+    /// This is a placeholder implementation. In a real implementation,
+    /// this would use reflection to create a record instance with the specified field values.
+    /// </remarks>
+    let createRecord (fieldValues: Map<string, obj>): obj =
+        box fieldValues
+
     /// <summary>
     /// Encodes a value based on its schema
     /// </summary>
@@ -41,69 +72,50 @@ module Codec =
                     | FixedData length -> writeFixedData buffer (unbox<byte[]> value) length
                     | Void -> ()
                     | Enum _ -> writeEnum buffer (unbox<uint64> value)
-                    
+
                 | Aggregate aggType ->
                     match aggType with
                     | Optional innerType ->
                         let opt = unbox<option<obj>> value
                         writeOptional buffer opt (fun buf v -> encodeWithType innerType v buf)
-                    
+
                     | List innerType ->
                         let list = unbox<obj seq> value
                         writeList buffer list (fun buf v -> encodeWithType innerType v buf)
-                    
+
                     | FixedList (innerType, length) ->
                         let list = unbox<obj seq> value
                         writeFixedList buffer list length (fun buf v -> encodeWithType innerType v buf)
-                    
+
                     | Map (keyType, valueType) ->
                         let map = unbox<(obj * obj) seq> value
-                        writeMap buffer map 
+                        writeMap buffer map
                             (fun buf k -> encodeWithType keyType k buf)
                             (fun buf v -> encodeWithType valueType v buf)
-                    
+
                     | Union cases ->
                         let (tag, innerValue) = unbox<uint * obj> value
                         let innerType = Map.find tag cases
                         writeUnion buffer tag innerValue (fun buf v -> encodeWithType innerType v buf)
-                    
+
                     | Struct fields ->
                         let record = value
                         for field in fields do
                             let fieldValue = getRecordField record field.Name
                             encodeWithType field.Type fieldValue buffer
-                
+
                 | UserDefined typeName ->
                     // Look up the type in the schema
                     let actualType = Map.find typeName schema.Types
                     encodeWithType actualType value buffer
-            
+
             // Start encoding with the root type
             let rootType = Map.find schema.Root schema.Types
             encodeWithType rootType (box value) buffer
             Ok ()
         with ex ->
             Error (encodingError ex.Message)
-    
-    /// <summary>
-    /// Gets the value of a field from a record using reflection
-    /// </summary>
-    /// <param name="record">The record object</param>
-    /// <param name="fieldName">The name of the field to retrieve</param>
-    /// <returns>The field value as an object</returns>
-    /// <exception cref="System.Exception">Thrown when the field is not found</exception>
-    and getRecordField (record: obj) (fieldName: string): obj =
-        let recordType = record.GetType()
-        let property = recordType.GetProperty(fieldName)
-        if property <> null then
-            property.GetValue(record)
-        else
-            let field = recordType.GetField(fieldName)
-            if field <> null then
-                field.GetValue(record)
-            else
-                failwith $"Field or property '{fieldName}' not found on type '{recordType.FullName}'"
-    
+
     /// <summary>
     /// Decodes a value based on its schema
     /// </summary>
@@ -116,134 +128,122 @@ module Codec =
                 match typ with
                 | Primitive primType ->
                     match primType with
-                    | UInt -> 
+                    | UInt ->
                         let value, newOffset = readUInt memory offset
                         box value, newOffset
-                    | Int -> 
+                    | Int ->
                         let value, newOffset = readInt memory offset
                         box value, newOffset
-                    | U8 -> 
+                    | U8 ->
                         let value, newOffset = readU8 memory offset
                         box value, newOffset
-                    | U16 -> 
+                    | U16 ->
                         let value, newOffset = readU16 memory offset
                         box value, newOffset
-                    | U32 -> 
+                    | U32 ->
                         let value, newOffset = readU32 memory offset
                         box value, newOffset
-                    | U64 -> 
+                    | U64 ->
                         let value, newOffset = readU64 memory offset
                         box value, newOffset
-                    | I8 -> 
+                    | I8 ->
                         let value, newOffset = readI8 memory offset
                         box value, newOffset
-                    | I16 -> 
+                    | I16 ->
                         let value, newOffset = readI16 memory offset
                         box value, newOffset
-                    | I32 -> 
+                    | I32 ->
                         let value, newOffset = readI32 memory offset
                         box value, newOffset
-                    | I64 -> 
+                    | I64 ->
                         let value, newOffset = readI64 memory offset
                         box value, newOffset
-                    | F32 -> 
+                    | F32 ->
                         let value, newOffset = readF32 memory offset
                         box value, newOffset
-                    | F64 -> 
+                    | F64 ->
                         let value, newOffset = readF64 memory offset
                         box value, newOffset
-                    | Bool -> 
+                    | Bool ->
                         let value, newOffset = readBool memory offset
                         box value, newOffset
-                    | String -> 
+                    | String ->
                         let value, newOffset = readString memory offset
                         box value, newOffset
-                    | Data -> 
+                    | Data ->
                         let value, newOffset = readData memory offset
                         box value, newOffset
-                    | FixedData length -> 
+                    | FixedData length ->
                         let value, newOffset = readFixedData memory offset length
                         box value, newOffset
                     | Void -> box (), offset
                     | Enum _ ->
                         let value, newOffset = readUInt memory offset
                         box value, newOffset
-                    
+
                 | Aggregate aggType ->
                     match aggType with
                     | Optional innerType ->
-                        let optValue, newOffset = 
-                            readOptional memory offset 
+                        let optValue, newOffset =
+                            readOptional memory offset
                                 (fun mem off -> decodeWithType innerType mem off)
                         box optValue, newOffset
-                    
+
                     | List innerType ->
-                        let list, newOffset = 
-                            readList memory offset 
+                        let list, newOffset =
+                            readList memory offset
                                 (fun mem off -> decodeWithType innerType mem off)
                         box list, newOffset
-                    
+
                     | FixedList (innerType, length) ->
-                        let list, newOffset = 
+                        let list, newOffset =
                             readFixedList memory offset length
                                 (fun mem off -> decodeWithType innerType mem off)
                         box list, newOffset
-                    
+
                     | Map (keyType, valueType) ->
-                        let map, newOffset = 
+                        let map, newOffset =
                             readMap memory offset
                                 (fun mem off -> decodeWithType keyType mem off)
                                 (fun mem off -> decodeWithType valueType mem off)
                         box map, newOffset
-                    
+
                     | Union cases ->
                         let tagVal, tagOffset = readUInt memory offset
                         let tag = uint tagVal
-                        
+
                         if not (Map.containsKey tag cases) then
                             failwith $"Unknown union tag: {tag}"
-                            
+
                         let innerType = Map.find tag cases
                         let value, newOffset = decodeWithType innerType memory tagOffset
                         box (tag, value), newOffset
-                    
+
                     | Struct fields ->
                         // Create a record with the fields
                         let mutable fieldValues = Map.empty
                         let mutable currentOffset = offset
-                        
+
                         for field in fields do
                             let value, newOffset = decodeWithType field.Type memory currentOffset
                             fieldValues <- Map.add field.Name value fieldValues
                             currentOffset <- newOffset
-                        
+
                         let record = createRecord fieldValues
                         box record, currentOffset
-                
+
                 | UserDefined typeName ->
                     // Look up the type in the schema
                     let actualType = Map.find typeName schema.Types
                     decodeWithType actualType memory offset
-            
+
             // Start decoding with the root type
             let rootType = Map.find schema.Root schema.Types
             let value, finalOffset = decodeWithType rootType memory 0<offset>
             Ok (unbox<'T> value, finalOffset)
         with ex ->
             Error (decodingError ex.Message)
-    
-    /// <summary>
-    /// Creates a record from field values
-    /// </summary>
-    /// <param name="fieldValues">A map of field names to values</param>
-    /// <returns>A record instance with the specified fields</returns>
-    /// <remarks>
-    /// This is a placeholder implementation. In a real implementation, 
-    /// this would use reflection to create a record instance with the specified field values.
-    /// </remarks>
-    and createRecord (fieldValues: Map<string, obj>): obj =
-        box fieldValues
-    
+
     /// <summary>
     /// Encodes a value with UMX type safety
     /// </summary>
@@ -251,9 +251,9 @@ module Codec =
     /// <param name="value">The value to encode, wrapped with a measure type</param>
     /// <param name="buffer">The buffer to write to</param>
     /// <returns>A result indicating success or an encoding error</returns>
-    let encodeWithMeasure<'T, [<Measure>] 'm> 
-                        (schema: SchemaDefinition<validated>) 
-                        (value: 'T<'m>) 
+    let encodeWithMeasure<'T, [<Measure>] 'm>
+                        (schema: SchemaDefinition<validated>)
+                        (value: 'T<'m>)
                         (buffer: Buffer<'a>): Result<unit> =
         // Unwrap the measure
         let rawValue = UMX.untag value
@@ -266,8 +266,8 @@ module Codec =
     /// <param name="schema">The validated schema definition</param>
     /// <param name="memory">The memory region containing the encoded data</param>
     /// <returns>A result containing the decoded value (with measure) and final offset, or a decoding error</returns>
-    let decodeWithMeasure<'T, [<Measure>] 'm> 
-                        (schema: SchemaDefinition<validated>) 
+    let decodeWithMeasure<'T, [<Measure>] 'm>
+                        (schema: SchemaDefinition<validated>)
                         (memory: Memory<'a, 'region>): Result<'T<'m> * int<offset>> =
         // Decode the raw value
         let result = decode<'T> schema memory

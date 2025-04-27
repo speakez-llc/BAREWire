@@ -1,18 +1,41 @@
 namespace BAREWire.Memory
 
+#nowarn "9" // Disable warning about using fixed keyword
+
 open FSharp.UMX
 open FSharp.NativeInterop
 open BAREWire.Core
 open BAREWire.Core.Error
 open BAREWire.Core.Memory
+open BAREWire.Core.Utf8
 open BAREWire.Memory.SafeMemory
-
-#nowarn "9" // Disable warning about using fixed keyword
 
 /// <summary>
 /// Memory view operations for working with typed data in memory regions
 /// </summary>
 module View =
+    /// <summary>
+    /// A field path in a memory view, represented as a list of field names
+    /// </summary>
+    type FieldPath = string list
+    
+    /// <summary>
+    /// Field offset information within a memory view
+    /// </summary>
+    type FieldOffset = {
+        /// <summary>The offset of the field in bytes</summary>
+        Offset: int<offset>
+        
+        /// <summary>The type of the field</summary>
+        Type: Type
+        
+        /// <summary>The size of the field in bytes</summary>
+        Size: int<bytes>
+        
+        /// <summary>The alignment of the field in bytes</summary>
+        Alignment: int<bytes>
+    }
+    
     /// <summary>
     /// A view over a memory region with a specific schema
     /// </summary>
@@ -29,52 +52,359 @@ module View =
         FieldOffsets: Map<string, FieldOffset>
     }
     
-    /// <summary>
-    /// A field path in a memory view, represented as a list of field names
-    /// </summary>
-    and FieldPath = string list
+    // Utility functions to convert between int and measured types
+    let inline toOffset (i: int) = i * 1<offset>
+    let inline toBytes (i: int) = i * 1<bytes>
+    let inline fromOffset (o: int<offset>) = int o
+    let inline fromBytes (b: int<bytes>) = int b
+    
+    // Read functions for primitive types
+    
+    /// Reads an unsigned variable-length integer
+    let readUInt (data: byte[]) (offset: int): uint64 =
+        let mutable value = 0UL
+        let mutable shift = 0
+        let mutable pos = offset
+        let mutable b = 0uy
+        
+        let rec readLoop() =
+            b <- readByte data (toOffset pos)
+            value <- value ||| ((uint64 (b &&& 0x7Fuy)) <<< shift)
+            pos <- pos + 1
+            shift <- shift + 7
+            if (b &&& 0x80uy) <> 0uy && shift < 64 then
+                readLoop()
+        
+        readLoop()
+        value
+    
+    /// Reads a signed variable-length integer
+    let readInt (data: byte[]) (offset: int): int64 =
+        let unsigned = readUInt data offset
+        // ZigZag decode
+        if (unsigned &&& 1UL = 0UL) then
+            // Even number = positive
+            int64 (unsigned >>> 1)
+        else
+            // Odd number = negative
+            ~~~(int64 (unsigned >>> 1))
+    
+    /// Reads an unsigned 8-bit integer
+    let readU8 (data: byte[]) (offset: int): byte =
+        readByte data (toOffset offset)
+    
+    /// Reads an unsigned 16-bit integer
+    let readU16 (data: byte[]) (offset: int): uint16 =
+        BAREWire.Core.Binary.toUInt16 data offset
+    
+    /// Reads an unsigned 32-bit integer
+    let readU32 (data: byte[]) (offset: int): uint32 =
+        BAREWire.Core.Binary.toUInt32 data offset
+    
+    /// Reads an unsigned 64-bit integer
+    let readU64 (data: byte[]) (offset: int): uint64 =
+        BAREWire.Core.Binary.toUInt64 data offset
+    
+    /// Reads a signed 8-bit integer
+    let readI8 (data: byte[]) (offset: int): sbyte =
+        sbyte (readByte data (toOffset offset))
+    
+    /// Reads a signed 16-bit integer
+    let readI16 (data: byte[]) (offset: int): int16 =
+        BAREWire.Core.Binary.toInt16 data offset
+    
+    /// Reads a signed 32-bit integer
+    let readI32 (data: byte[]) (offset: int): int32 =
+        BAREWire.Core.Binary.toInt32 data offset
+    
+    /// Reads a signed 64-bit integer
+    let readI64 (data: byte[]) (offset: int): int64 =
+        BAREWire.Core.Binary.toInt64 data offset
+    
+    /// Reads a 32-bit floating point number
+    let readF32 (data: byte[]) (offset: int): float32 =
+        let bits = readU32 data offset
+        BAREWire.Core.Binary.int32BitsToSingle (int32 bits)
+    
+    /// Reads a 64-bit floating point number
+    let readF64 (data: byte[]) (offset: int): float =
+        let bits = readU64 data offset
+        BAREWire.Core.Binary.int64BitsToDouble (int64 bits)
+    
+    /// Reads a boolean value
+    let readBool (data: byte[]) (offset: int): bool =
+        readByte data (toOffset offset) <> 0uy
+    
+    /// Reads a string
+    let readString (data: byte[]) (offset: int): string =
+        // Read string length
+        let length = int (readUInt data offset)
+        let mutable pos = offset
+        
+        // Skip the length bytes
+        while pos < data.Length && (readByte data (toOffset pos) &&& 0x80uy) <> 0uy do
+            pos <- pos + 1
+        pos <- pos + 1 // Skip the last byte of the length
+        
+        // Read the string bytes
+        if length > 0 && pos + length <= data.Length then
+            let bytes = Array.init length (fun i -> readByte data (toOffset (pos + i)))
+            getString bytes
+        else
+            ""
+    
+    /// Reads binary data
+    let readData (data: byte[]) (offset: int): byte[] =
+        // Similar to string, but returns raw bytes
+        let length = int (readUInt data offset)
+        let mutable pos = offset
+        
+        // Skip the length bytes
+        while pos < data.Length && (readByte data (toOffset pos) &&& 0x80uy) <> 0uy do
+            pos <- pos + 1
+        pos <- pos + 1 // Skip the last byte of the length
+        
+        // Read the data bytes
+        if length > 0 && pos + length <= data.Length then
+            Array.init length (fun i -> readByte data (toOffset (pos + i)))
+        else
+            [||]
+    
+    /// Reads fixed-size binary data
+    let readFixedData (data: byte[]) (offset: int) (length: int): byte[] =
+        if offset + length <= data.Length then
+            Array.init length (fun i -> readByte data (toOffset (offset + i)))
+        else
+            [||]
+    
+    // Write functions for primitive types
+    
+    /// Writes an unsigned variable-length integer
+    let writeUInt (data: byte[]) (offset: int) (value: uint64): int =
+        let mutable remaining = value
+        let mutable pos = offset
+        
+        while remaining >= 0x80UL do
+            data.[pos] <- byte (0x80uy ||| (byte (remaining &&& 0x7FUL)))
+            pos <- pos + 1
+            remaining <- remaining >>> 7
+            
+        data.[pos] <- byte remaining
+        pos - offset + 1 // Return number of bytes written
+    
+    /// Writes a signed variable-length integer
+    let writeInt (data: byte[]) (offset: int) (value: int64): int =
+        // ZigZag encode
+        let zigzag = 
+            if value >= 0L then
+                uint64 (value <<< 1)
+            else
+                uint64 ((value <<< 1) ^^^ -1L)
+        writeUInt data offset zigzag
+    
+    /// Writes an unsigned 8-bit integer
+    let writeU8 (data: byte[]) (offset: int) (value: byte): unit =
+        writeByte data (toOffset offset) value
+    
+    /// Writes an unsigned 16-bit integer
+    let writeU16 (data: byte[]) (offset: int) (value: uint16): unit =
+        let bytes = BAREWire.Core.Binary.getUInt16Bytes value
+        for i = 0 to bytes.Length - 1 do
+            data.[offset + i] <- bytes.[i]
+    
+    /// Writes an unsigned 32-bit integer
+    let writeU32 (data: byte[]) (offset: int) (value: uint32): unit =
+        let bytes = BAREWire.Core.Binary.getUInt32Bytes value
+        for i = 0 to bytes.Length - 1 do
+            data.[offset + i] <- bytes.[i]
+    
+    /// Writes an unsigned 64-bit integer
+    let writeU64 (data: byte[]) (offset: int) (value: uint64): unit =
+        let bytes = BAREWire.Core.Binary.getUInt64Bytes value
+        for i = 0 to bytes.Length - 1 do
+            data.[offset + i] <- bytes.[i]
+    
+    /// Writes a signed 8-bit integer
+    let writeI8 (data: byte[]) (offset: int) (value: sbyte): unit =
+        writeByte data (toOffset offset) (byte value)
+    
+    /// Writes a signed 16-bit integer
+    let writeI16 (data: byte[]) (offset: int) (value: int16): unit =
+        let bytes = BAREWire.Core.Binary.getInt16Bytes value
+        for i = 0 to bytes.Length - 1 do
+            data.[offset + i] <- bytes.[i]
+    
+    /// Writes a signed 32-bit integer
+    let writeI32 (data: byte[]) (offset: int) (value: int32): unit =
+        let bytes = BAREWire.Core.Binary.getInt32Bytes value
+        for i = 0 to bytes.Length - 1 do
+            data.[offset + i] <- bytes.[i]
+    
+    /// Writes a signed 64-bit integer
+    let writeI64 (data: byte[]) (offset: int) (value: int64): unit =
+        let bytes = BAREWire.Core.Binary.getInt64Bytes value
+        for i = 0 to bytes.Length - 1 do
+            data.[offset + i] <- bytes.[i]
+    
+    /// Writes a 32-bit floating point number
+    let writeF32 (data: byte[]) (offset: int) (value: float32): unit =
+        let bits = BAREWire.Core.Binary.singleToInt32Bits value
+        writeI32 data offset bits
+    
+    /// Writes a 64-bit floating point number
+    let writeF64 (data: byte[]) (offset: int) (value: float): unit =
+        let bits = BAREWire.Core.Binary.doubleToInt64Bits value
+        writeI64 data offset bits
+    
+    /// Writes a boolean value
+    let writeBool (data: byte[]) (offset: int) (value: bool): unit =
+        writeByte data (toOffset offset) (if value then 1uy else 0uy)
+    
+    /// Writes a string
+    let writeString (data: byte[]) (offset: int) (value: string): int =
+        let bytes = getBytes value
+        let bytesLength = bytes.Length
+        
+        // Write length
+        let lengthSize = writeUInt data offset (uint64 bytesLength)
+        let stringOffset = offset + lengthSize
+        
+        // Write string bytes
+        for i = 0 to bytesLength - 1 do
+            if stringOffset + i < data.Length then
+                data.[stringOffset + i] <- bytes.[i]
+                
+        lengthSize + bytesLength
+    
+    /// Writes binary data
+    let writeData (data: byte[]) (offset: int) (value: byte[]): int =
+        // Similar to string, but with raw bytes
+        let valueLength = value.Length
+        
+        // Write length
+        let lengthSize = writeUInt data offset (uint64 valueLength)
+        let dataOffset = offset + lengthSize
+        
+        // Write data bytes
+        for i = 0 to valueLength - 1 do
+            if dataOffset + i < data.Length then
+                data.[dataOffset + i] <- value.[i]
+                
+        lengthSize + valueLength
+    
+    /// Writes fixed-size binary data
+    let writeFixedData (data: byte[]) (offset: int) (value: byte[]) (length: int): unit =
+        // Write fixed amount of bytes, padding or truncating as needed
+        let valueLength = value.Length
+        
+        for i = 0 to length - 1 do
+            if offset + i < data.Length then
+                if i < valueLength then
+                    data.[offset + i] <- value.[i]
+                else
+                    data.[offset + i] <- 0uy
     
     /// <summary>
-    /// Field offset information within a memory view
+    /// Gets the type name for a type
     /// </summary>
-    and FieldOffset = {
-        /// <summary>The offset of the field in bytes</summary>
-        Offset: int<offset>
-        
-        /// <summary>The type of the field</summary>
-        Type: Type
-        
-        /// <summary>The size of the field in bytes</summary>
-        Size: int<bytes>
-        
-        /// <summary>The alignment of the field in bytes</summary>
-        Alignment: int<bytes>
-    }
+    let rec getTypeName (typ: Type): string =
+        match typ with
+        | UserDefined name -> name
+        | _ -> ""
     
     /// <summary>
-    /// Creates a view over a memory region with a schema
+    /// Gets the size and alignment for a type
     /// </summary>
-    /// <param name="memory">The memory region to view</param>
-    /// <param name="schema">The schema defining the structure of the data</param>
-    /// <returns>A memory view for the region</returns>
-    let create<'T, [<Measure>] 'region> 
-              (memory: Memory<'T, 'region>) 
-              (schema: SchemaDefinition<validated>): MemoryView<'T, 'region> =
-        // Calculate field offsets for faster access
-        let fieldOffsets = calculateFieldOffsets schema
+    let rec getSizeAndAlignment (schema: SchemaDefinition<validated>) (typ: Type): int<bytes> * int<bytes> =
+        match typ with
+        | Primitive primType ->
+            match primType with
+            | UInt -> toBytes 8, toBytes 8
+            | Int -> toBytes 8, toBytes 8
+            | U8 -> toBytes 1, toBytes 1
+            | U16 -> toBytes 2, toBytes 2
+            | U32 -> toBytes 4, toBytes 4
+            | U64 -> toBytes 8, toBytes 8
+            | I8 -> toBytes 1, toBytes 1
+            | I16 -> toBytes 2, toBytes 2
+            | I32 -> toBytes 4, toBytes 4
+            | I64 -> toBytes 8, toBytes 8
+            | F32 -> toBytes 4, toBytes 4
+            | F64 -> toBytes 8, toBytes 8
+            | Bool -> toBytes 1, toBytes 1
+            | String -> toBytes 16, toBytes 8
+            | Data -> toBytes 16, toBytes 8
+            | FixedData length -> toBytes length, toBytes 1
+            | Void -> toBytes 0, toBytes 1
+            | Enum _ -> toBytes 8, toBytes 8
         
-        {
-            Memory = memory
-            Schema = schema
-            FieldOffsets = fieldOffsets
-        }
+        | Aggregate aggType ->
+            match aggType with
+            | Optional innerType ->
+                let innerSize, innerAlign = getSizeAndAlignment schema innerType
+                innerSize + toBytes 1, max (toBytes 1) innerAlign
+                
+            | List _ -> toBytes 16, toBytes 8
+            
+            | FixedList (innerType, length) ->
+                let innerSize, innerAlign = getSizeAndAlignment schema innerType
+                let calculatedSize = fromBytes innerSize * length |> toBytes
+                calculatedSize, innerAlign
+                
+            | Map _ -> toBytes 16, toBytes 8
+            
+            | Union cases ->
+                // Union takes the size of the largest case plus 8 bytes for the tag
+                let maxSize = 
+                    cases 
+                    |> Map.values 
+                    |> Seq.map (fun t -> fst (getSizeAndAlignment schema t))
+                    |> Seq.max
+                
+                let maxAlign = 
+                    cases 
+                    |> Map.values 
+                    |> Seq.map (fun t -> snd (getSizeAndAlignment schema t))
+                    |> Seq.max
+                
+                maxSize + toBytes 8, max (toBytes 8) maxAlign
+                
+            | Struct fields ->
+                // Calculate total size with proper alignment
+                let mutable totalSize = toBytes 0
+                let mutable maxAlign = toBytes 1
+                
+                for field in fields do
+                    let fieldSize, fieldAlign = getSizeAndAlignment schema field.Type
+                    
+                    // Align the current offset
+                    let rem = fromBytes totalSize % fromBytes fieldAlign
+                    if rem <> 0 then
+                        totalSize <- totalSize + toBytes (fromBytes fieldAlign - rem)
+                    
+                    // Add field size
+                    totalSize <- totalSize + fieldSize
+                    
+                    // Track maximum alignment
+                    maxAlign <- max maxAlign fieldAlign
+                
+                // Final size needs to be a multiple of the maximum alignment
+                let rem = fromBytes totalSize % fromBytes maxAlign
+                if rem <> 0 then
+                    totalSize <- totalSize + toBytes (fromBytes maxAlign - rem)
+                
+                totalSize, maxAlign
+        
+        | UserDefined typeName ->
+            // Look up the user-defined type
+            match Map.tryFind typeName schema.Types with
+            | Some t -> getSizeAndAlignment schema t
+            | None -> toBytes 8, toBytes 8  // Default if type not found
     
     /// <summary>
     /// Calculates field offsets for a schema
     /// </summary>
-    /// <param name="schema">The schema to calculate offsets for</param>
-    /// <returns>A map of field paths to their offset information</returns>
-    and calculateFieldOffsets (schema: SchemaDefinition<validated>): Map<string, FieldOffset> =
+    let rec calculateFieldOffsets (schema: SchemaDefinition<validated>): Map<string, FieldOffset> =
         let rec calcOffsets typeName parentPath currentOffset acc =
             match Map.tryFind typeName schema.Types with
             | None -> acc  // Type not found
@@ -98,9 +428,9 @@ module View =
                         
                         // Apply alignment
                         let alignedOffset = 
-                            let rem = int fieldOffset % int fieldAlign
+                            let rem = fromOffset fieldOffset % fromBytes fieldAlign
                             if rem = 0 then fieldOffset
-                            else fieldOffset + ((int fieldAlign - rem) * 1<offset>)
+                            else fieldOffset + toOffset (fromBytes fieldAlign - rem)
                         
                         // Add field to result
                         result <- Map.add 
@@ -114,7 +444,7 @@ module View =
                             result
                         
                         // Update offset for next field
-                        fieldOffset <- alignedOffset + (int fieldSize * 1<offset>)
+                        fieldOffset <- alignedOffset + toOffset (fromBytes fieldSize)
                         
                         // If this is a nested struct or a user-defined type, recurse
                         match fieldType with
@@ -125,7 +455,7 @@ module View =
                                 | Some fo -> getTypeName fo.Type
                                 | None -> ""
                             
-                            if not (String.IsNullOrEmpty nestedTypeName) then
+                            if not (System.String.IsNullOrEmpty nestedTypeName) then
                                 result <- calcOffsets nestedTypeName newPath alignedOffset result
                         | UserDefined nestedTypeName ->
                             let newPath = parentPath @ [field.Name]
@@ -136,116 +466,27 @@ module View =
                 | _ -> acc  // Only structs have fields
             
         // Start calculating from the root type
-        calcOffsets schema.Root [] 0<offset> Map.empty
+        calcOffsets schema.Root [] (toOffset 0) Map.empty
     
     /// <summary>
-    /// Gets the size and alignment for a type
+    /// Creates a view over a memory region with a schema
     /// </summary>
-    /// <param name="schema">The schema containing type definitions</param>
-    /// <param name="typ">The type to get size and alignment for</param>
-    /// <returns>A tuple of (size, alignment) in bytes</returns>
-    and getSizeAndAlignment (schema: SchemaDefinition<validated>) (typ: Type): int<bytes> * int<bytes> =
-        match typ with
-        | Primitive primType ->
-            match primType with
-            | UInt -> 8<bytes>, 8<bytes>  // Variable length, max 10 bytes but align to 8
-            | Int -> 8<bytes>, 8<bytes>   // Variable length, max 10 bytes but align to 8
-            | U8 -> 1<bytes>, 1<bytes>
-            | U16 -> 2<bytes>, 2<bytes>
-            | U32 -> 4<bytes>, 4<bytes>
-            | U64 -> 8<bytes>, 8<bytes>
-            | I8 -> 1<bytes>, 1<bytes>
-            | I16 -> 2<bytes>, 2<bytes>
-            | I32 -> 4<bytes>, 4<bytes>
-            | I64 -> 8<bytes>, 8<bytes>
-            | F32 -> 4<bytes>, 4<bytes>
-            | F64 -> 8<bytes>, 8<bytes>
-            | Bool -> 1<bytes>, 1<bytes>
-            | String -> 16<bytes>, 8<bytes>  // Pointer + length
-            | Data -> 16<bytes>, 8<bytes>    // Pointer + length
-            | FixedData length -> length * 1<bytes>, 1<bytes>
-            | Void -> 0<bytes>, 1<bytes>
-            | Enum _ -> 8<bytes>, 8<bytes>   // Treat like uint64
+    let create<'T, [<Measure>] 'region> 
+              (memory: Memory<'T, 'region>) 
+              (schema: SchemaDefinition<validated>): MemoryView<'T, 'region> =
+        // Calculate field offsets for faster access
+        let fieldOffsets = calculateFieldOffsets schema
         
-        | Aggregate aggType ->
-            match aggType with
-            | Optional innerType ->
-                let innerSize, innerAlign = getSizeAndAlignment schema innerType
-                innerSize + 1<bytes>, max 1<bytes> innerAlign
-                
-            | List _ -> 16<bytes>, 8<bytes>  // Pointer + length
-            
-            | FixedList (innerType, length) ->
-                let innerSize, innerAlign = getSizeAndAlignment schema innerType
-                innerSize * length, innerAlign
-                
-            | Map _ -> 16<bytes>, 8<bytes>   // Pointer to map structure
-            
-            | Union cases ->
-                // Union takes the size of the largest case plus 8 bytes for the tag
-                let maxSize = 
-                    cases 
-                    |> Map.values 
-                    |> Seq.map (fun t -> fst (getSizeAndAlignment schema t))
-                    |> Seq.max
-                
-                let maxAlign = 
-                    cases 
-                    |> Map.values 
-                    |> Seq.map (fun t -> snd (getSizeAndAlignment schema t))
-                    |> Seq.max
-                
-                maxSize + 8<bytes>, max 8<bytes> maxAlign
-                
-            | Struct fields ->
-                // Calculate total size with proper alignment
-                let mutable totalSize = 0<bytes>
-                let mutable maxAlign = 1<bytes>
-                
-                for field in fields do
-                    let fieldSize, fieldAlign = getSizeAndAlignment schema field.Type
-                    
-                    // Align the current offset
-                    let rem = int totalSize % int fieldAlign
-                    if rem <> 0 then
-                        totalSize <- totalSize + ((int fieldAlign - rem) * 1<bytes>)
-                    
-                    // Add field size
-                    totalSize <- totalSize + fieldSize
-                    
-                    // Track maximum alignment
-                    maxAlign <- max maxAlign fieldAlign
-                
-                // Final size needs to be a multiple of the maximum alignment
-                let rem = int totalSize % int maxAlign
-                if rem <> 0 then
-                    totalSize <- totalSize + ((int maxAlign - rem) * 1<bytes>)
-                
-                totalSize, maxAlign
-        
-        | UserDefined typeName ->
-            // Look up the user-defined type
-            match Map.tryFind typeName schema.Types with
-            | Some t -> getSizeAndAlignment schema t
-            | None -> 8<bytes>, 8<bytes>  // Default if type not found
-    
-    /// <summary>
-    /// Gets the type name for a type
-    /// </summary>
-    /// <param name="typ">The type to get the name for</param>
-    /// <returns>The type name, or empty string for primitives and aggregates</returns>
-    and getTypeName (typ: Type): string =
-        match typ with
-        | UserDefined name -> name
-        | _ -> ""
+        {
+            Memory = memory
+            Schema = schema
+            FieldOffsets = fieldOffsets
+        }
     
     /// <summary>
     /// Resolves a field path to get its offset in memory
     /// </summary>
-    /// <param name="view">The memory view</param>
-    /// <param name="fieldPath">The path to the field</param>
-    /// <returns>A result containing the field offset information or an error</returns>
-    let resolveFieldPath 
+    let resolveFieldPath<'T, [<Measure>] 'region> 
         (view: MemoryView<'T, 'region>) 
         (fieldPath: FieldPath): Result<FieldOffset> =
         
@@ -255,254 +496,125 @@ module View =
         // Look up in the offset cache
         match Map.tryFind pathString view.FieldOffsets with
         | Some offset -> Ok offset
-        | None ->
-            // If not found in cache, try to resolve dynamically
-            let rec resolveField currentType remainingPath currentOffset =
-                match remainingPath, currentType with
-                | [], _ -> 
-                    // End of path, return current offset
-                    let size, align = getSizeAndAlignment view.Schema currentType
-                    Ok { 
-                        Offset = currentOffset
-                        Type = currentType
-                        Size = size
-                        Alignment = align
-                    }
-                    
-                | fieldName :: rest, Aggregate (Struct fields) ->
-                    // Find the field in the struct
-                    match List.tryFind (fun f -> f.Name = fieldName) fields with
-                    | Some field ->
-                        // Calculate field offset with alignment
-                        let fieldSize, fieldAlign = getSizeAndAlignment view.Schema field.Type
-                        
-                        // Align the current offset
-                        let alignedOffset = 
-                            let rem = int currentOffset % int fieldAlign
-                            if rem = 0 then currentOffset
-                            else currentOffset + ((int fieldAlign - rem) * 1<offset>)
-                        
-                        // Continue with the rest of the path
-                        resolveField field.Type rest (alignedOffset + (fieldSize * 1<offset>))
-                        
-                    | None ->
-                        Error (invalidValueError $"Field not found: {fieldName}")
-                        
-                | fieldName :: rest, UserDefined typeName ->
-                    // Look up the type definition
-                    match Map.tryFind typeName view.Schema.Types with
-                    | Some typ -> resolveField typ remainingPath currentOffset
-                    | None -> Error (invalidValueError $"Type not found: {typeName}")
-                    
-                | _, _ ->
-                    Error (invalidValueError $"Cannot access field in non-struct type")
+        | None -> Error (invalidValueError (sprintf "Field path not found: %s" pathString))
+    
+    /// <summary>
+    /// Dynamically get a field value from memory based on its type
+    /// </summary>
+    let private getFieldValue<'R> (memory: Memory<'T, 'region>) (offset: int<offset>) (typ: Type): Result<'R> =
+        try
+            let offsetInt = fromOffset offset
             
-            // Start resolving from the root type
-            let rootType = Map.find view.Schema.Root view.Schema.Types
-            resolveField rootType fieldPath 0<offset>
+            // Simplified implementation that only handles primitive types
+            let result =
+                match typ with
+                | Primitive primType ->
+                    match primType with
+                    | U8 -> box (readU8 memory.Data offsetInt)
+                    | U16 -> box (readU16 memory.Data offsetInt)
+                    | U32 -> box (readU32 memory.Data offsetInt)
+                    | U64 -> box (readU64 memory.Data offsetInt)
+                    | I8 -> box (readI8 memory.Data offsetInt)
+                    | I16 -> box (readI16 memory.Data offsetInt)
+                    | I32 -> box (readI32 memory.Data offsetInt)
+                    | I64 -> box (readI64 memory.Data offsetInt)
+                    | F32 -> box (readF32 memory.Data offsetInt)
+                    | F64 -> box (readF64 memory.Data offsetInt)
+                    | Bool -> box (readBool memory.Data offsetInt)
+                    | String -> box (readString memory.Data offsetInt)
+                    | Data -> box (readData memory.Data offsetInt)
+                    | FixedData length -> box (readFixedData memory.Data offsetInt length)
+                    | UInt -> box (readUInt memory.Data offsetInt)
+                    | Int -> box (readInt memory.Data offsetInt)
+                    | Enum _ -> box (readUInt memory.Data offsetInt)
+                    | Void -> box ()
+                | _ -> failwith "Aggregate types not supported in this simplified implementation"
+                
+            // We'll use this dumb type casting as a workaround for now
+            // In a proper implementation, we'd handle type compatibility properly
+            Ok (unbox<'R> result)
+        with ex ->
+            Error (decodingError (sprintf "Failed to decode field: %s" ex.Message))
+    
+    /// <summary>
+    /// Dynamically set a field value in memory based on its type
+    /// </summary>
+    let private setFieldValue<'V> (memory: Memory<'T, 'region>) (offset: int<offset>) (typ: Type) (value: 'V): Result<unit> =
+        try
+            let offsetInt = fromOffset offset
+            
+            // Simplified implementation that only handles primitive types
+            match typ with
+            | Primitive primType ->
+                match primType with
+                | U8 -> writeU8 memory.Data offsetInt (unbox<byte> (box value))
+                | U16 -> writeU16 memory.Data offsetInt (unbox<uint16> (box value))
+                | U32 -> writeU32 memory.Data offsetInt (unbox<uint32> (box value))
+                | U64 -> writeU64 memory.Data offsetInt (unbox<uint64> (box value))
+                | I8 -> writeI8 memory.Data offsetInt (unbox<sbyte> (box value))
+                | I16 -> writeI16 memory.Data offsetInt (unbox<int16> (box value))
+                | I32 -> writeI32 memory.Data offsetInt (unbox<int32> (box value))
+                | I64 -> writeI64 memory.Data offsetInt (unbox<int64> (box value))
+                | F32 -> writeF32 memory.Data offsetInt (unbox<float32> (box value))
+                | F64 -> writeF64 memory.Data offsetInt (unbox<float> (box value))
+                | Bool -> writeBool memory.Data offsetInt (unbox<bool> (box value))
+                | String -> ignore (writeString memory.Data offsetInt (unbox<string> (box value)))
+                | Data -> ignore (writeData memory.Data offsetInt (unbox<byte[]> (box value)))
+                | FixedData length -> writeFixedData memory.Data offsetInt (unbox<byte[]> (box value)) length
+                | UInt -> ignore (writeUInt memory.Data offsetInt (unbox<uint64> (box value)))
+                | Int -> ignore (writeInt memory.Data offsetInt (unbox<int64> (box value)))
+                | Enum _ -> ignore (writeUInt memory.Data offsetInt (unbox<uint64> (box value)))
+                | Void -> () // Nothing to write
+            | _ -> 
+                return Error (encodingError "Aggregate types not supported in this simplified implementation")
+            
+            Ok ()
+        with ex ->
+            Error (encodingError (sprintf "Failed to encode field: %s" ex.Message))
     
     /// <summary>
     /// Gets a field value from a view
     /// </summary>
-    /// <param name="view">The memory view</param>
-    /// <param name="fieldPath">The path to the field</param>
-    /// <returns>A result containing the field value or an error</returns>
-    /// <exception cref="BAREWire.Core.Error.Error">Thrown when field resolution or decoding fails</exception>
     let getField<'T, 'Field, [<Measure>] 'region> 
                 (view: MemoryView<'T, 'region>) 
                 (fieldPath: FieldPath): Result<'Field> =
         resolveFieldPath view fieldPath
         |> Result.bind (fun fieldOffset ->
-            try
-                // Create a memory slice for the field
-                let fieldMemory = {
-                    Data = view.Memory.Data
-                    Offset = view.Memory.Offset + fieldOffset.Offset
-                    Length = min fieldOffset.Size (view.Memory.Length - fieldOffset.Offset)
-                }
-                
-                // Based on the field type, decode the value
-                match fieldOffset.Type with
-                | Primitive primType ->
-                    match primType with
-                    | U8 -> 
-                        let value = readByte fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | U16 -> 
-                        let value = readUnmanaged<uint16> fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | U32 -> 
-                        let value = readUnmanaged<uint32> fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | U64 -> 
-                        let value = readUnmanaged<uint64> fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | I8 -> 
-                        let value = readUnmanaged<sbyte> fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | I16 -> 
-                        let value = readUnmanaged<int16> fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | I32 -> 
-                        let value = readUnmanaged<int32> fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | I64 -> 
-                        let value = readUnmanaged<int64> fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | F32 -> 
-                        let value = readUnmanaged<float32> fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | F64 -> 
-                        let value = readUnmanaged<float> fieldMemory.Data (int fieldMemory.Offset)
-                        Ok (box value :?> 'Field)
-                        
-                    | Bool -> 
-                        let value = readByte fieldMemory.Data (int fieldMemory.Offset) <> 0uy
-                        Ok (box value :?> 'Field)
-                        
-                    | String ->
-                        // String is stored as length + bytes
-                        let length = readUnmanaged<int32> fieldMemory.Data (int fieldMemory.Offset)
-                        
-                        if length > 0 then
-                            let bytes = Array.init length (fun i -> 
-                                readByte fieldMemory.Data (int fieldMemory.Offset + 4 + i))
-                            let value = BAREWire.Core.Utf8.getString bytes
-                            Ok (box value :?> 'Field)
-                        else
-                            Ok (box "" :?> 'Field)
-                            
-                    | _ ->
-                        // For other types, we'd need to implement specific decoding logic
-                        // This is a simplified version
-                        Error (decodingError $"Decoding not implemented for type {fieldOffset.Type}")
-                        
-                | _ ->
-                    // For complex types, we'd need to implement custom decoding logic
-                    // based on the schema and field type
-                    Error (decodingError $"Decoding not implemented for complex types")
-                    
-            with ex ->
-                Error (decodingError $"Failed to decode field {String.concat "." fieldPath}: {ex.Message}")
+            let fieldMemory = {
+                Data = view.Memory.Data
+                Offset = view.Memory.Offset + fieldOffset.Offset
+                Length = min fieldOffset.Size (view.Memory.Length - fieldOffset.Offset)
+            }
+            
+            getFieldValue<'Field> fieldMemory 0<offset> fieldOffset.Type
         )
     
     /// <summary>
     /// Sets a field value in a view
     /// </summary>
-    /// <param name="view">The memory view</param>
-    /// <param name="fieldPath">The path to the field</param>
-    /// <param name="value">The value to set</param>
-    /// <returns>A result indicating success or an error</returns>
-    /// <exception cref="BAREWire.Core.Error.Error">Thrown when field resolution or encoding fails</exception>
     let setField<'T, 'Field, [<Measure>] 'region> 
                 (view: MemoryView<'T, 'region>) 
                 (fieldPath: FieldPath) 
                 (value: 'Field): Result<unit> =
         resolveFieldPath view fieldPath
         |> Result.bind (fun fieldOffset ->
-            try
-                let fieldOffset = int (view.Memory.Offset + fieldOffset.Offset)
-                
-                // Based on the field type, encode the value
-                match fieldOffset.Type with
-                | Primitive primType ->
-                    match primType with
-                    | U8 -> 
-                        let byteValue = value :?> byte
-                        writeByte view.Memory.Data fieldOffset byteValue
-                        
-                    | U16 -> 
-                        let u16Value = value :?> uint16
-                        writeUnmanaged<uint16> view.Memory.Data fieldOffset u16Value
-                        
-                    | U32 -> 
-                        let u32Value = value :?> uint32
-                        writeUnmanaged<uint32> view.Memory.Data fieldOffset u32Value
-                        
-                    | U64 -> 
-                        let u64Value = value :?> uint64
-                        writeUnmanaged<uint64> view.Memory.Data fieldOffset u64Value
-                        
-                    | I8 -> 
-                        let i8Value = value :?> sbyte
-                        writeUnmanaged<sbyte> view.Memory.Data fieldOffset i8Value
-                        
-                    | I16 -> 
-                        let i16Value = value :?> int16
-                        writeUnmanaged<int16> view.Memory.Data fieldOffset i16Value
-                        
-                    | I32 -> 
-                        let i32Value = value :?> int32
-                        writeUnmanaged<int32> view.Memory.Data fieldOffset i32Value
-                        
-                    | I64 -> 
-                        let i64Value = value :?> int64
-                        writeUnmanaged<int64> view.Memory.Data fieldOffset i64Value
-                        
-                    | F32 -> 
-                        let f32Value = value :?> float32
-                        writeUnmanaged<float32> view.Memory.Data fieldOffset f32Value
-                        
-                    | F64 -> 
-                        let f64Value = value :?> float
-                        writeUnmanaged<float> view.Memory.Data fieldOffset f64Value
-                        
-                    | Bool -> 
-                        let boolValue = value :?> bool
-                        writeByte view.Memory.Data fieldOffset (if boolValue then 1uy else 0uy)
-                        
-                    | String ->
-                        // String is stored as length + bytes
-                        let stringValue = value :?> string
-                        let bytes = BAREWire.Core.Utf8.getBytes stringValue
-                        let length = bytes.Length
-                        
-                        // Write length
-                        writeUnmanaged<int32> view.Memory.Data fieldOffset length
-                        
-                        // Write string data
-                        if length > 0 then
-                            for i = 0 to length - 1 do
-                                if fieldOffset + 4 + i < view.Memory.Data.Length then
-                                    writeByte view.Memory.Data (fieldOffset + 4 + i) bytes.[i]
-                                
-                    | _ ->
-                        // For other types, we'd need to implement specific encoding logic
-                        return Error (encodingError $"Encoding not implemented for type {fieldOffset.Type}")
-                        
-                | _ ->
-                    // For complex types, we'd need to implement custom encoding logic
-                    // based on the schema and field type
-                    return Error (encodingError $"Encoding not implemented for complex types")
-                
-                Ok ()
-                    
-            with ex ->
-                Error (encodingError $"Failed to encode field {String.concat "." fieldPath}: {ex.Message}")
+            let fieldMemory = {
+                Data = view.Memory.Data
+                Offset = view.Memory.Offset + fieldOffset.Offset
+                Length = min fieldOffset.Size (view.Memory.Length - fieldOffset.Offset)
+            }
+            
+            setFieldValue<'Field> fieldMemory 0<offset> fieldOffset.Type value
         )
     
     /// <summary>
     /// Gets a view for a nested struct field
     /// </summary>
-    /// <param name="view">The parent memory view</param>
-    /// <param name="fieldPath">The path to the nested struct field</param>
-    /// <returns>A result containing the nested view or an error</returns>
-    /// <exception cref="BAREWire.Core.Error.Error">Thrown when field resolution fails</exception>
     let getNestedView<'T, 'U, [<Measure>] 'region> 
                      (view: MemoryView<'T, 'region>) 
                      (fieldPath: FieldPath): Result<MemoryView<'U, 'region>> =
         resolveFieldPath view fieldPath
         |> Result.bind (fun fieldOffset ->
-            // Check if the field is a struct or user-defined type
             match fieldOffset.Type with
             | Aggregate (Struct _) | UserDefined _ ->
                 // Create a view for the nested field
@@ -526,45 +638,35 @@ module View =
                 Ok (create<'U, 'region> fieldMemory fieldSchema)
                 
             | _ ->
-                Error (invalidValueError $"Field {String.concat "." fieldPath} is not a struct or user-defined type")
+                let pathStr = String.concat "." fieldPath
+                let errorMsg = sprintf "Field %s is not a struct or user-defined type" pathStr
+                Error (invalidValueError errorMsg)
         )
     
     /// <summary>
     /// Gets a UMX-typed field value from a view
     /// </summary>
-    /// <param name="view">The memory view</param>
-    /// <param name="fieldPath">The path to the field</param>
-    /// <returns>A result containing the field value with measure type or an error</returns>
-    /// <exception cref="BAREWire.Core.Error.Error">Thrown when field resolution or decoding fails</exception>
-    let getFieldWithMeasure<'T, 'Field, [<Measure>] 'region, [<Measure>] 'measure> 
+    let getFieldWithMeasure<'T, [<Measure>] 'region, [<Measure>] 'measure, 'Field> 
                            (view: MemoryView<'T, 'region>) 
-                           (fieldPath: FieldPath): Result<'Field<'measure>> =
+                           (fieldPath: FieldPath): Result<'Field> =
+        // This is a simplified placeholder implementation.
+        // In a real implementation, we would properly handle the UMX tags.
         getField<'T, 'Field, 'region> view fieldPath
-        |> Result.map (fun value -> UMX.tag<'measure> value)
     
     /// <summary>
     /// Sets a UMX-typed field value in a view
     /// </summary>
-    /// <param name="view">The memory view</param>
-    /// <param name="fieldPath">The path to the field</param>
-    /// <param name="value">The value with measure type to set</param>
-    /// <returns>A result indicating success or an error</returns>
-    /// <exception cref="BAREWire.Core.Error.Error">Thrown when field resolution or encoding fails</exception>
-    let setFieldWithMeasure<'T, 'Field, [<Measure>] 'region, [<Measure>] 'measure> 
+    let setFieldWithMeasure<'T, [<Measure>] 'region, [<Measure>] 'measure, 'Field> 
                            (view: MemoryView<'T, 'region>) 
                            (fieldPath: FieldPath) 
-                           (value: 'Field<'measure>): Result<unit> =
-        let rawValue = UMX.untag value
-        setField<'T, 'Field, 'region> view fieldPath rawValue
+                           (value: 'Field): Result<unit> =
+        // This is a simplified placeholder implementation.
+        // In a real implementation, we would properly handle the UMX tags.
+        setField<'T, 'Field, 'region> view fieldPath value
     
     /// <summary>
     /// Applies a function to transform a field value
     /// </summary>
-    /// <param name="view">The memory view</param>
-    /// <param name="fieldPath">The path to the field</param>
-    /// <param name="updateFn">The function to transform the current value</param>
-    /// <returns>A result indicating success or an error</returns>
-    /// <exception cref="BAREWire.Core.Error.Error">Thrown when field resolution, decoding, or encoding fails</exception>
     let updateField<'T, 'Field, [<Measure>] 'region> 
                    (view: MemoryView<'T, 'region>) 
                    (fieldPath: FieldPath) 
@@ -578,53 +680,33 @@ module View =
     /// <summary>
     /// Checks if a field exists in the view
     /// </summary>
-    /// <param name="view">The memory view</param>
-    /// <param name="fieldPath">The path to the field</param>
-    /// <returns>True if the field exists, false otherwise</returns>
     let fieldExists<'T, [<Measure>] 'region> 
                    (view: MemoryView<'T, 'region>) 
                    (fieldPath: FieldPath): bool =
-        // Convert path to a dot-separated string
         let pathString = String.concat "." fieldPath
-        
-        // Check if the field exists in the offsets cache
         Map.containsKey pathString view.FieldOffsets
     
     /// <summary>
     /// Gets all field names at the root level of a view
     /// </summary>
-    /// <param name="view">The memory view</param>
-    /// <returns>A list of field names</returns>
     let getRootFieldNames<'T, [<Measure>] 'region> 
                          (view: MemoryView<'T, 'region>): string list =
-        // Get the root type
-        let rootType = Map.find view.Schema.Root view.Schema.Types
-        
-        match rootType with
-        | Aggregate (Struct fields) ->
-            // Extract field names from the struct
+        match Map.tryFind view.Schema.Root view.Schema.Types with
+        | Some (Aggregate (Struct fields)) ->
             fields |> List.map (fun field -> field.Name)
-        | _ ->
-            // Non-struct types don't have field names
-            []
+        | _ -> []
     
     /// <summary>
     /// Creates a memory view for a specific address within a memory region
     /// </summary>
-    /// <param name="address">The address within the region</param>
-    /// <param name="memory">The memory region</param>
-    /// <param name="schema">The schema for the view</param>
-    /// <returns>A memory view for the specified address</returns>
     let fromAddress<'T, [<Measure>] 'region> 
                    (address: Address<'region>) 
                    (memory: Memory<'T, 'region>) 
                    (schema: SchemaDefinition<validated>): MemoryView<'T, 'region> =
-        // Calculate the view memory
         let viewMemory = {
             Data = memory.Data
             Offset = address.Offset
             Length = memory.Length - (address.Offset - memory.Offset)
         }
         
-        // Create the view
         create<'T, 'region> viewMemory schema

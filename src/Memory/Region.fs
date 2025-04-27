@@ -81,7 +81,7 @@ module Region =
         try
             let newData = Array.zeroCreate (int newSize)
             let copySize = min region.Length newSize
-            Array.Copy(region.Data, int region.Offset, newData, 0, int copySize)
+            System.Array.Copy(region.Data, int region.Offset, newData, 0, int copySize)
             Ok (fromArray<'T, 'region> newData)
         with ex ->
             Error (invalidValueError $"Failed to resize region: {ex.Message}")
@@ -116,8 +116,8 @@ module Region =
             let newSize = region1.Length + region2.Length
             let newData = Array.zeroCreate (int newSize)
             
-            Array.Copy(region1.Data, int region1.Offset, newData, 0, int region1.Length)
-            Array.Copy(region2.Data, int region2.Offset, newData, int region1.Length, int region2.Length)
+            System.Array.Copy(region1.Data, int region1.Offset, newData, 0, int region1.Length)
+            System.Array.Copy(region2.Data, int region2.Offset, newData, int region1.Length, int region2.Length)
             
             Ok (fromArray<'T, 'region> newData)
         with ex ->
@@ -133,17 +133,19 @@ module Region =
     let split<'T, [<Measure>] 'region> 
              (region: Region<'T, 'region>) 
              (offset: int<offset>): Result<Region<'T, 'region> * Region<'T, 'region>> =
-        if offset < 0<offset> || offset > region.Length then
+        if offset < 0<offset> || int offset * 1<bytes> > region.Length then
             Error (outOfBoundsError offset 0<bytes>)
         else
             try
-                let firstLength = offset
-                let secondLength = region.Length - offset
+                let firstLength = int offset * 1<bytes>
+                let secondLength = region.Length - firstLength
                 
-                let first = slice<'T, 'T, 'region> region 0<offset> firstLength |> Result.get
-                let second = slice<'T, 'T, 'region> region offset secondLength |> Result.get
-                
-                Ok (first, second)
+                match slice<'T, 'T, 'region> region 0<offset> firstLength with
+                | Ok first ->
+                    match slice<'T, 'T, 'region> region offset secondLength with
+                    | Ok second -> Ok (first, second)
+                    | Error e -> Error e
+                | Error e -> Error e
             with ex ->
                 Error (invalidValueError $"Failed to split region: {ex.Message}")
     

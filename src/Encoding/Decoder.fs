@@ -21,14 +21,14 @@ module Decoder =
         let mutable currentOffset = offset
         let mutable currentByte = 0uy
         
-        let mutable continue = true
-        while continue do
+        let mutable shouldContinue = true
+        while shouldContinue do
             currentByte <- memory.Data.[int (memory.Offset + currentOffset)]
             currentOffset <- currentOffset + 1<offset>
             
             result <- result ||| ((uint64 (currentByte &&& 0x7Fuy)) <<< shift)
             shift <- shift + 7
-            continue <- (currentByte &&& 0x80uy <> 0uy) && (shift < 64)
+            shouldContinue <- (currentByte &&& 0x80uy <> 0uy) && (shift < 64)
         
         result, currentOffset
     

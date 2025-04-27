@@ -73,7 +73,7 @@ module Uuid =
     /// <param name="namespace">The namespace UUID</param>
     /// <param name="name">The name string</param>
     /// <returns>A version 5 UUID</returns>
-    let newUuidV5 (namespace: Uuid) (name: string): Uuid =
+    let newUuidV5 (``namespace``: Uuid) (name: string) Uuid =
         // Convert name to bytes using UTF-8 encoding
         let nameBytes = 
             Array.init name.Length (fun i -> 
@@ -81,7 +81,7 @@ module Uuid =
                 if c < 128 then byte c else byte '?')
         
         // Combine namespace and name
-        let data = Array.append namespace.Data nameBytes
+        let data = Array.append ``namespace``.Data nameBytes
         
         // Normally we would compute SHA-1 hash here
         // For this example, we'll just do a simple hash

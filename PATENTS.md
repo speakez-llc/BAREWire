@@ -10,7 +10,7 @@ The following patents are owned by SpeakEZ LLC and are applicable to the BAREWir
 
 ## Patent Grant
 
-Subject to the terms and conditions of the applicable license agreement (either the Apache License 2.0 or a Commercial License), a patent license is granted by [YOUR COMPANY/ENTITY NAME] to the recipients of BAREWire software.
+Subject to the terms and conditions of the applicable license agreement (either the Apache License 2.0 or a Commercial License), a patent license is granted by SpeakEZ LLC to the recipients of BAREWire software.
 
 ### Apache License 2.0 Patent Grant
 
@@ -28,7 +28,7 @@ If you are using BAREWire under a Commercial License, the patent license you rec
 
 For further information regarding patent licensing, or to inquire about Commercial Licensing options, please contact:
 
-SpeakEZ.ai - engineering@speakez.net
+[SpeakEZ LLC](https://speakez.ai/contact)
 
 ## Defensive Termination
 

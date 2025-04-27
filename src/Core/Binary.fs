@@ -1,3 +1,5 @@
+#nowarn "9"
+
 namespace BAREWire.Core
 
 open FSharp.NativeInterop
@@ -13,8 +15,10 @@ module Binary =
     /// <param name="value">The float32 value to convert</param>
     /// <returns>The bit pattern as an int32</returns>
     let singleToInt32Bits (value: float32) : int32 =
+        // Create mutable value to take address
+        let mutable v = value
         // Use FSharp.NativeInterop to reinterpret the bits
-        let valuePtr = &&value
+        let valuePtr = &&v
         NativePtr.read (NativePtr.ofNativeInt<int32> (NativePtr.toNativeInt valuePtr))
     
     /// <summary>
@@ -23,7 +27,8 @@ module Binary =
     /// <param name="value">The int32 bit pattern</param>
     /// <returns>The corresponding float32 value</returns>
     let int32BitsToSingle (value: int32) : float32 =
-        let valuePtr = &&value
+        let mutable v = value
+        let valuePtr = &&v
         NativePtr.read (NativePtr.ofNativeInt<float32> (NativePtr.toNativeInt valuePtr))
     
     /// <summary>
@@ -32,7 +37,8 @@ module Binary =
     /// <param name="value">The float value to convert</param>
     /// <returns>The bit pattern as an int64</returns>
     let doubleToInt64Bits (value: float) : int64 =
-        let valuePtr = &&value
+        let mutable v = value
+        let valuePtr = &&v
         NativePtr.read (NativePtr.ofNativeInt<int64> (NativePtr.toNativeInt valuePtr))
     
     /// <summary>
@@ -41,7 +47,8 @@ module Binary =
     /// <param name="value">The int64 bit pattern</param>
     /// <returns>The corresponding float value</returns>
     let int64BitsToDouble (value: int64) : float =
-        let valuePtr = &&value
+        let mutable v = value
+        let valuePtr = &&v
         NativePtr.read (NativePtr.ofNativeInt<float> (NativePtr.toNativeInt valuePtr))
     
     /// <summary>

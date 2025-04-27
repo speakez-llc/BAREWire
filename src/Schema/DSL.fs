@@ -90,7 +90,7 @@ module DSL =
     /// <summary>
     /// Defines a BARE void type (no data)
     /// </summary>
-    let void = Primitive Void
+    let voidType = Primitive Void
     
     /// <summary>
     /// Defines a BARE f32 type (32-bit floating point)
