@@ -3,6 +3,7 @@
 /// </summary>
 module BAREWire.Core.Time.WindowsTime
 
+open System
 open FSharp.NativeInterop
 open BAREWire.Core.Time.NativeInterop
 open BAREWire.Core.Time.Platform
@@ -40,24 +41,60 @@ type SYSTEMTIME =
 /// Windows time functions using the enhanced P/Invoke-like API
 /// </summary>
 module Kernel32 =
-    // Define native imports
-    let private getSystemTimeAsFileTimeImport = 
-        dllImport<nativeint -> unit> "kernel32" "GetSystemTimeAsFileTime"
+    // Define native imports with explicit type annotations
+    let getSystemTimeAsFileTimeImport : NativeImport<nativeint -> unit> = 
+        {
+            LibraryName = "kernel32"
+            FunctionName = "GetSystemTimeAsFileTime"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        }
         
-    let private getSystemTimeImport = 
-        dllImport<nativeint -> unit> "kernel32" "GetSystemTime"
+    let getSystemTimeImport : NativeImport<nativeint -> unit> = 
+        {
+            LibraryName = "kernel32"
+            FunctionName = "GetSystemTime"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        }
         
-    let private queryPerformanceCounterImport = 
-        dllImport<nativeint -> bool> "kernel32" "QueryPerformanceCounter"
+    let queryPerformanceCounterImport : NativeImport<nativeint -> bool> = 
+        {
+            LibraryName = "kernel32"
+            FunctionName = "QueryPerformanceCounter"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        }
         
-    let private queryPerformanceFrequencyImport = 
-        dllImport<nativeint -> bool> "kernel32" "QueryPerformanceFrequency"
+    let queryPerformanceFrequencyImport : NativeImport<nativeint -> bool> = 
+        {
+            LibraryName = "kernel32"
+            FunctionName = "QueryPerformanceFrequency"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        }
         
-    let private sleepImport = 
-        dllImport<uint32 -> unit> "kernel32" "Sleep"
+    let sleepImport : NativeImport<uint32 -> unit> = 
+        {
+            LibraryName = "kernel32"
+            FunctionName = "Sleep"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        }
         
-    let private fileTimeToSystemTimeImport = 
-        dllImport<nativeint -> nativeint -> bool> "kernel32" "FileTimeToSystemTime"
+    let fileTimeToSystemTimeImport : NativeImport<nativeint -> nativeint -> bool> = 
+        {
+            LibraryName = "kernel32"
+            FunctionName = "FileTimeToSystemTime"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        }
     
     /// <summary>
     /// Gets the current system time as a FILETIME

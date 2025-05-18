@@ -14,53 +14,52 @@ module TimeIntegration =
     /// <summary>
     /// Platform-specific time implementation that is lazily initialized
     /// </summary>
-    let private platformTime = 
-        lazy (
-            try
-                getImplementation()
-            with 
-            | :? PlatformNotSupportedException as ex -> 
-                // Provide specific error details
-                failwith $"Failed to initialize time implementation: {ex.Message}"
-            | ex -> 
-                // Handle unexpected errors
-                failwith $"Unexpected error initializing time implementation: {ex.Message}"
-        )
+    let private platformTime : IPlatformTime = 
+        try
+            getImplementation()
+        with 
+        | :? PlatformNotSupportedException as ex -> 
+            // Provide specific error details
+            failwith $"Failed to initialize time implementation: {ex.Message}"
+        | ex -> 
+            // Handle unexpected errors
+            failwith $"Unexpected error initializing time implementation: {ex.Message}"
+        
     
     /// <summary>
     /// Gets the current time in ticks from the platform
     /// </summary>
     /// <returns>The current time in 100-nanosecond intervals since January 1, 0001</returns>
     let getCurrentTicks () = 
-        platformTime.Value.GetCurrentTicks()
+        platformTime.GetCurrentTicks()
     
     /// <summary>
     /// Gets the current UTC time in ticks
     /// </summary>
     /// <returns>The current UTC time in 100-nanosecond intervals since January 1, 0001</returns>
     let getUtcNow () = 
-        platformTime.Value.GetUtcNow()
+        platformTime.GetUtcNow()
     
     /// <summary>
     /// Gets the system time as file time
     /// </summary>
     /// <returns>The current time as a file time (100-nanosecond intervals since January 1, 1601)</returns>
     let getSystemTimeAsFileTime () = 
-        platformTime.Value.GetSystemTimeAsFileTime()
+        platformTime.GetSystemTimeAsFileTime()
     
     /// <summary>
     /// Gets high-resolution performance counter ticks
     /// </summary>
     /// <returns>The current value of the high-resolution performance counter</returns>
     let getHighResolutionTicks () = 
-        platformTime.Value.GetHighResolutionTicks()
+        platformTime.GetHighResolutionTicks()
     
     /// <summary>
     /// Gets the frequency of the high-resolution performance counter
     /// </summary>
     /// <returns>The frequency in ticks per second</returns>
     let getTickFrequency () = 
-        platformTime.Value.GetTickFrequency()
+        platformTime.GetTickFrequency()
     
     /// <summary>
     /// Sleeps for the specified number of milliseconds
@@ -71,4 +70,4 @@ module TimeIntegration =
             // Validate input
             invalidArg "milliseconds" "Sleep duration must be non-negative"
         
-        platformTime.Value.Sleep(milliseconds)
+        platformTime.Sleep(milliseconds)

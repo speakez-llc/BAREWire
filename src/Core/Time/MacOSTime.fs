@@ -3,6 +3,7 @@
 /// </summary>
 module BAREWire.Core.Time.MacOSTime
 
+open System
 open FSharp.NativeInterop
 open BAREWire.Core.Time.NativeInterop
 open BAREWire.Core.Time.Platform
@@ -38,13 +39,42 @@ type MachTimebaseInfo =
 /// macOS time functions using enhanced P/Invoke-like API
 /// </summary>
 module LibC =
-    // Define native imports
-    let private gettimeofdayImport = 
-        dllImport<nativeint -> nativeint -> int> "libc" "gettimeofday"
+    // Helper function to ensure correct type inference for function delegates
+    let inline importFunc2<'T1, 'T2, 'TResult> libraryName functionName =
+        // Force the correct type through explicit construction
+        {
+            LibraryName = libraryName
+            FunctionName = functionName
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        } : NativeImport<'T1 -> 'T2 -> 'TResult>
+
+    let gettimeofdayImport = 
+        {
+            LibraryName = "libc"
+            FunctionName = "gettimeofday"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        } : NativeImport<nativeint -> nativeint -> int>
         
-    let private usleepImport = 
-        dllImport<uint32 -> int> "libc" "usleep"
+    let usleepImport = 
+        {
+            LibraryName = "libc"
+            FunctionName = "usleep"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        } : NativeImport<uint32 -> int>
+        
+    let inline importFunc1<'T1, 'TResult> libraryName functionName =
+        dllImport<'T1 -> 'TResult> libraryName functionName
+        
+    let inline importFunc0<'TResult> libraryName functionName =
+        dllImport<unit -> 'TResult> libraryName functionName
     
+   
     /// <summary>
     /// Gets the current time of day
     /// </summary>
@@ -83,12 +113,36 @@ module LibC =
 /// macOS Mach time functions using enhanced P/Invoke-like API
 /// </summary>
 module MachTime =
+    // Reuse the helper functions from LibC for consistent imports
+    open LibC
+
+    let inline createImport<'TDelegate> libraryName functionName =
+        {
+            LibraryName = libraryName
+            FunctionName = functionName
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        } : NativeImport<'TDelegate>
+    
     // Define native imports
-    let private mach_absolute_timeImport = 
-        dllImport<unit -> uint64> "libc" "mach_absolute_time"
+    let mach_absolute_timeImport : NativeImport<unit -> uint64> = 
+        {
+            LibraryName = "libc"
+            FunctionName = "mach_absolute_time"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        }
         
-    let private mach_timebase_infoImport = 
-        dllImport<nativeint -> int> "libc" "mach_timebase_info"
+    let mach_timebase_infoImport : NativeImport<nativeint -> int> = 
+        {
+            LibraryName = "libc"
+            FunctionName = "mach_timebase_info"
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        }
     
     /// <summary>
     /// Gets the current value of the high-resolution clock

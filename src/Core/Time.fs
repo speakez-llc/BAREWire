@@ -2,7 +2,6 @@ namespace BAREWire.Core
 
 open BAREWire.Core.Time.Integration
 open Alloy
-open Alloy.Numerics
 
 /// <summary>
 /// Pure F# time utilities with no System.DateTime dependencies
@@ -336,7 +335,7 @@ module Time =
     let createTimestamp (seconds: int64) (nanoseconds: int): Timestamp =
         // Validate parameters
         if nanoseconds < 0 || nanoseconds > 999999999 then
-            failwithf "Nanoseconds out of range: " (string nanoseconds)
+            failwithf "Nanoseconds out of range: %d" nanoseconds
             
         { Seconds = seconds; Nanoseconds = nanoseconds }
     

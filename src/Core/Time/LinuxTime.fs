@@ -3,6 +3,7 @@
 /// </summary>
 module BAREWire.Core.Time.LinuxTime
 
+open System
 open FSharp.NativeInterop
 open BAREWire.Core.Time.NativeInterop
 open BAREWire.Core.Time.Platform
@@ -27,7 +28,6 @@ type Timespec =
 /// <summary>
 /// Unix clock IDs
 /// </summary>
-[<Struct>]
 type ClockID =
     | CLOCK_REALTIME = 0
     | CLOCK_MONOTONIC = 1
@@ -38,12 +38,23 @@ type ClockID =
 /// Unix time functions using enhanced P/Invoke-like API
 /// </summary>
 module LibC =
-    // Define native imports
-    let private clockGettimeImport = 
-        dllImport<int -> nativeint -> int> "libc" "clock_gettime"
+    // Helper function to ensure correct type inference for function delegates
+    let inline importFunc2<'T1, 'T2, 'TResult> libraryName functionName =
+        // Force the correct type through explicit construction
+        {
+            LibraryName = libraryName
+            FunctionName = functionName
+            CallingConvention = CallingConvention.Cdecl
+            CharSet = CharSet.Ansi
+            SupressErrorHandling = false
+        } : NativeImport<'T1 -> 'T2 -> 'TResult>
+    
+    // Define imports using the helper function
+    let clockGettimeImport = 
+        importFunc2<int, nativeint, int> "libc" "clock_gettime"
         
-    let private nanosleepImport = 
-        dllImport<nativeint -> nativeint -> int> "libc" "nanosleep"
+    let nanosleepImport = 
+        importFunc2<nativeint, nativeint, int> "libc" "nanosleep"
     
     /// <summary>
     /// Gets the current time from the specified clock
@@ -54,7 +65,7 @@ module LibC =
         
         // Call clock_gettime
         let result = invokeFunc2 
-                        clockGettimeImport 
+                        clockGettimeImport
                         (int clockId) 
                         (NativePtr.toNativeInt timespec)
         
@@ -69,9 +80,12 @@ module LibC =
     /// Suspends execution for the specified time interval
     /// </summary>
     let nanosleep(seconds: int64, nanoseconds: int64) =
-        // Create timespec structure
+        // Create timespec structure for request time
         let req = NativePtr.stackalloc<Timespec> 1
-        NativePtr.set req 0 { tv_sec = seconds; tv_nsec = nanoseconds }
+        let mutable reqTs = NativePtr.get req 0
+        reqTs.tv_sec <- seconds
+        reqTs.tv_nsec <- nanoseconds
+        NativePtr.set req 0 reqTs
         
         // Allocate for remaining time
         let rem = NativePtr.stackalloc<Timespec> 1
