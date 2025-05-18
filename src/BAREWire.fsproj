@@ -12,6 +12,14 @@
     <Compile Include="Core/Utf8.fs" />
     <Compile Include="Core/Binary.fs" />
     <Compile Include="Core/Uuid.fs" />
+
+    <!-- Core Time Implementation -->
+    <Compile Include="Core/Time/NativeInterop.fs" />
+    <Compile Include="Core/Time/Platform.fs" />
+    <Compile Include="Core/Time/WindowsTime.fs" />
+    <Compile Include="Core/Time/LinuxTime.fs" />
+    <Compile Include="Core/Time/MacOSTime.fs" />
+    <Compile Include="Core/Time/Integration.fs" />
     <Compile Include="Core/Time.fs" />
     
     <!-- Memory -->
