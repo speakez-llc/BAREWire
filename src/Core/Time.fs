@@ -2,6 +2,7 @@ namespace BAREWire.Core
 
 open BAREWire.Core.Time.Integration
 open Alloy
+open Alloy.Numerics
 
 /// <summary>
 /// Pure F# time utilities with no System.DateTime dependencies
@@ -16,8 +17,8 @@ module Time =
     let private ticksPerDay = 24L * ticksPerHour
     let private daysPerYear = 365L
     let private daysPerLeapYear = 366L
-    let private daysInMonth = [|31; 28; 31; 30; 31; 30; 31; 31; 30; 31; 30; 31|]
-    let private daysInMonthLeapYear = [|31; 29; 31; 30; 31; 30; 31; 31; 30; 31; 30; 31|]
+    let private daysInMonthArray = [|31; 28; 31; 30; 31; 30; 31; 31; 30; 31; 30; 31|]
+    let private daysInMonthLeapYearArray = [|31; 29; 31; 30; 31; 30; 31; 31; 30; 31; 30; 31|]
     
     /// <summary>
     /// Represents a date and time structure
@@ -56,6 +57,17 @@ module Time =
         /// <summary>The milliseconds component</summary>
         Milliseconds: int
     }
+
+    /// <summary>
+    /// Represents an instant in time as seconds since Unix epoch
+    /// </summary>
+    [<Struct>]
+    type Timestamp = {
+        /// <summary>Seconds since Unix epoch (1970-01-01)</summary>
+        Seconds: int64
+        /// <summary>Nanoseconds part (0-999,999,999)</summary>
+        Nanoseconds: int
+    }
     
     /// <summary>
     /// Checks if a year is a leap year
@@ -81,6 +93,18 @@ module Time =
         (ticks - unixEpochTicks) / ticksPerSecond
     
     /// <summary>
+    /// Gets the current Unix timestamp with nanosecond precision
+    /// </summary>
+    /// <returns>The current timestamp with nanosecond precision</returns>
+    let currentTimestamp (): Timestamp =
+        let ticks = currentTicks()
+        let ticksSinceEpoch = ticks - unixEpochTicks
+        let seconds = ticksSinceEpoch / ticksPerSecond
+        let tickRemainder = ticksSinceEpoch % ticksPerSecond
+        let nanoseconds = int (tickRemainder * 100L) // Convert 100ns ticks to nanoseconds
+        { Seconds = seconds; Nanoseconds = nanoseconds }
+    
+    /// <summary>
     /// Gets high-resolution performance counter ticks
     /// </summary>
     /// <returns>The current high-resolution ticks</returns>
@@ -101,24 +125,24 @@ module Time =
     /// <param name="endTicks">The ending tick count</param>
     /// <returns>A TimeSpan representing the elapsed time</returns>
     let elapsedTime (startTicks: int64) (endTicks: int64): TimeSpan =
-        let elapsedTicks = Numerics.subtract endTicks startTicks
+        let elapsedTicks = subtract endTicks startTicks
         let freq = tickFrequency()
         
         // Convert to milliseconds
-        let totalMilliseconds = Numerics.divide (Numerics.multiply elapsedTicks 1000L) freq
+        let totalMilliseconds = divide (multiply elapsedTicks 1000L) freq
         
         // Calculate components
-        let totalSeconds = Numerics.divide totalMilliseconds 1000L
+        let totalSeconds = divide totalMilliseconds 1000L
         let ms = int (totalMilliseconds % 1000L)
         
-        let totalMinutes = Numerics.divide totalSeconds 60L
+        let totalMinutes = divide totalSeconds 60L
         let s = int (totalSeconds % 60L)
         
-        let totalHours = Numerics.divide totalMinutes 60L
+        let totalHours = divide totalMinutes 60L
         let m = int (totalMinutes % 60L)
         
         let h = int (totalHours % 24L)
-        let d = int (Numerics.divide totalHours 24L)
+        let d = int (divide totalHours 24L)
         
         { Days = d; Hours = h; Minutes = m; Seconds = s; Milliseconds = ms }
     
@@ -128,7 +152,7 @@ module Time =
     /// <param name="timestamp">The Unix timestamp in seconds</param>
     /// <returns>The timestamp in ticks</returns>
     let unixTimestampToTicks (timestamp: int64): int64 =
-        Numerics.add unixEpochTicks (Numerics.multiply timestamp ticksPerSecond)
+        add unixEpochTicks (multiply timestamp ticksPerSecond)
     
     /// <summary>
     /// Converts ticks to Unix timestamp
@@ -136,7 +160,29 @@ module Time =
     /// <param name="ticks">The timestamp in ticks</param>
     /// <returns>The Unix timestamp in seconds</returns>
     let ticksToUnixTimestamp (ticks: int64): int64 =
-        Numerics.divide (Numerics.subtract ticks unixEpochTicks) ticksPerSecond
+        divide (subtract ticks unixEpochTicks) ticksPerSecond
+    
+    /// <summary>
+    /// Converts a Timestamp to ticks
+    /// </summary>
+    /// <param name="timestamp">The timestamp value</param>
+    /// <returns>The timestamp in ticks</returns>
+    let timestampToTicks (timestamp: Timestamp): int64 =
+        let secondsInTicks = multiply timestamp.Seconds ticksPerSecond
+        let nanosTicks = int64 (timestamp.Nanoseconds / 100) // Convert nanoseconds to 100ns ticks
+        add unixEpochTicks (add secondsInTicks nanosTicks)
+    
+    /// <summary>
+    /// Converts ticks to a high-precision Timestamp
+    /// </summary>
+    /// <param name="ticks">The timestamp in ticks</param>
+    /// <returns>The high-precision Timestamp</returns>
+    let ticksToTimestamp (ticks: int64): Timestamp =
+        let ticksSinceEpoch = subtract ticks unixEpochTicks
+        let seconds = divide ticksSinceEpoch ticksPerSecond
+        let tickRemainder = modulo ticksSinceEpoch ticksPerSecond
+        let nanoseconds = int (multiply tickRemainder 100L) // Convert 100ns ticks to nanoseconds
+        { Seconds = seconds; Nanoseconds = nanoseconds }
     
     /// <summary>
     /// Converts a Unix timestamp to a DateTime structure
@@ -145,36 +191,36 @@ module Time =
     /// <returns>A DateTime structure representing the timestamp</returns>
     let unixTimestampToDateTime (timestamp: int64): DateTime =
         let mutable remainingSecs = timestamp
-        let days = Numerics.divide remainingSecs 86400L // seconds per day
-        remainingSecs <- Numerics.modulo remainingSecs 86400L
+        let days = divide remainingSecs 86400L // seconds per day
+        remainingSecs <- modulo remainingSecs 86400L
 
-        let hours = int (Numerics.divide remainingSecs 3600L)
-        remainingSecs <- Numerics.modulo remainingSecs 3600L
+        let hours = int (divide remainingSecs 3600L)
+        remainingSecs <- modulo remainingSecs 3600L
         
-        let minutes = int (Numerics.divide remainingSecs 60L)
-        remainingSecs <- Numerics.modulo remainingSecs 60L
+        let minutes = int (divide remainingSecs 60L)
+        remainingSecs <- modulo remainingSecs 60L
         
         let seconds = int remainingSecs
 
         let mutable year = 1970
         let mutable remainingDays = days
 
-        while Numerics.greaterThanOrEqual remainingDays (if isLeapYear year then daysPerLeapYear else daysPerYear) do
+        while greaterThanOrEqual remainingDays (if isLeapYear year then daysPerLeapYear else daysPerYear) do
             let daysInYear = if isLeapYear year then daysPerLeapYear else daysPerYear
-            remainingDays <- Numerics.subtract remainingDays daysInYear
-            year <- Numerics.add year 1
+            remainingDays <- subtract remainingDays daysInYear
+            year <- add year 1
 
-        let monthDays = if isLeapYear year then daysInMonthLeapYear else daysInMonth
+        let monthDays = if isLeapYear year then daysInMonthLeapYearArray else daysInMonthArray
         
         let mutable month = 0
-        while Numerics.lessThan month 12 && Numerics.greaterThanOrEqual remainingDays (int64 monthDays.[month]) do
-            remainingDays <- Numerics.subtract remainingDays (int64 monthDays.[month])
-            month <- Numerics.add month 1
+        while lessThan month 12 && greaterThanOrEqual remainingDays (int64 monthDays.[month]) do
+            remainingDays <- subtract remainingDays (int64 monthDays.[month])
+            month <- add month 1
         
         {
             Year = year
-            Month = Numerics.add month 1
-            Day = Numerics.add (int remainingDays) 1
+            Month = add month 1
+            Day = add (int remainingDays) 1
             Hour = hours
             Minute = minutes
             Second = seconds
@@ -190,25 +236,44 @@ module Time =
         // Count days from epoch to start of year
         let mutable days = 0L
         for y = 1970 to dateTime.Year - 1 do
-            days <- Numerics.add days (if isLeapYear y then daysPerLeapYear else daysPerYear)
+            days <- add days (if isLeapYear y then daysPerLeapYear else daysPerYear)
         
         // Add days for months in current year
-        let monthDays = if isLeapYear dateTime.Year then daysInMonthLeapYear else daysInMonth
+        let monthDays = if isLeapYear dateTime.Year then daysInMonthLeapYearArray else daysInMonthArray
         
         for m = 0 to dateTime.Month - 2 do
-            days <- Numerics.add days (int64 monthDays.[m])
+            days <- add days (int64 monthDays.[m])
         
         // Add days in current month
-        days <- Numerics.add days (int64 (Numerics.subtract dateTime.Day 1))
+        days <- add days (int64 (subtract dateTime.Day 1))
         
         // Calculate total seconds
         let totalSeconds = 
-            Numerics.add (Numerics.multiply days 86400L)
-                (Numerics.add (Numerics.multiply (int64 dateTime.Hour) 3600L)
-                     (Numerics.add (Numerics.multiply (int64 dateTime.Minute) 60L)
+            add (multiply days 86400L)
+                (add (multiply (int64 dateTime.Hour) 3600L)
+                     (add (multiply (int64 dateTime.Minute) 60L)
                           (int64 dateTime.Second)))
         
         totalSeconds
+    
+    /// <summary>
+    /// Converts a DateTime structure to a high-precision Timestamp
+    /// </summary>
+    /// <param name="dateTime">The DateTime to convert</param>
+    /// <returns>The high-precision Timestamp</returns>
+    let dateTimeToTimestamp (dateTime: DateTime): Timestamp =
+        let seconds = dateTimeToUnixTimestamp dateTime
+        let nanoseconds = dateTime.Millisecond * 1000000
+        { Seconds = seconds; Nanoseconds = nanoseconds }
+    
+    /// <summary>
+    /// Converts a high-precision Timestamp to a DateTime structure
+    /// </summary>
+    /// <param name="timestamp">The high-precision Timestamp</param>
+    /// <returns>A DateTime structure representing the timestamp</returns>
+    let timestampToDateTime (timestamp: Timestamp): DateTime =
+        let dateTime = unixTimestampToDateTime timestamp.Seconds
+        { dateTime with Millisecond = timestamp.Nanoseconds / 1000000 }
     
     /// <summary>
     /// Creates a DateTime structure
@@ -224,32 +289,32 @@ module Time =
     /// <exception cref="System.Exception">Thrown when the parameters are invalid</exception>
     let createDateTime (year: int) (month: int) (day: int) (hour: int) (minute: int) (second: int) (millisecond: int): DateTime =
         // Validate parameters
-        if Numerics.lessThan year 1 || Numerics.greaterThan year 9999 then
-            failwith (String.concat "" ["Year out of range: "; string year])
+        if lessThan year 1 || greaterThan year 9999 then
+            failwithf "Year out of range: %s" (string year)
         
-        if Numerics.lessThan month 1 || Numerics.greaterThan month 12 then
-            failwith (String.concat "" ["Month out of range: "; string month])
+        if lessThan month 1 || greaterThan month 12 then
+            failwithf "Month out of range: %d" month
         
         let daysInCurrentMonth = 
             if isLeapYear year then
-                daysInMonthLeapYear.[Numerics.subtract month 1]
+                daysInMonthLeapYearArray.[subtract month 1]
             else
-                daysInMonth.[Numerics.subtract month 1]
+                daysInMonthArray.[subtract month 1]
                 
-        if Numerics.lessThan day 1 || Numerics.greaterThan day daysInCurrentMonth then
-            failwith (String.concat "" ["Day out of range: "; string day])
+        if lessThan day 1 || greaterThan day daysInCurrentMonth then
+            failwithf "Day out of range: %d" day
         
-        if Numerics.lessThan hour 0 || Numerics.greaterThan hour 23 then
-            failwith (String.concat "" ["Hour out of range: "; string hour])
+        if lessThan hour 0 || greaterThan hour 23 then
+            failwithf "Hour out of range: %d" hour
         
-        if Numerics.lessThan minute 0 || Numerics.greaterThan minute 59 then
-            failwith (String.concat "" ["Minute out of range: "; string minute])
+        if lessThan minute 0 || greaterThan minute 59 then
+            failwithf "Minute out of range: %d" minute
         
-        if Numerics.lessThan second 0 || Numerics.greaterThan second 59 then
-            failwith (String.concat "" ["Second out of range: "; string second])
+        if lessThan second 0 || greaterThan second 59 then
+            failwithf "Second out of range: %d" second
         
-        if Numerics.lessThan millisecond 0 || Numerics.greaterThan millisecond 999 then
-            failwith (String.concat "" ["Millisecond out of range: "; string millisecond])
+        if lessThan millisecond 0 || greaterThan millisecond 999 then
+            failwithf "Millisecond out of range: %d" millisecond
         
         {
             Year = year
@@ -260,6 +325,20 @@ module Time =
             Second = second
             Millisecond = millisecond
         }
+    
+    /// <summary>
+    /// Creates a high-precision Timestamp
+    /// </summary>
+    /// <param name="seconds">The seconds since Unix epoch</param>
+    /// <param name="nanoseconds">The nanoseconds part (0-999,999,999)</param>
+    /// <returns>A new Timestamp structure</returns>
+    /// <exception cref="System.Exception">Thrown when the parameters are invalid</exception>
+    let createTimestamp (seconds: int64) (nanoseconds: int): Timestamp =
+        // Validate parameters
+        if nanoseconds < 0 || nanoseconds > 999999999 then
+            failwithf "Nanoseconds out of range: " (string nanoseconds)
+            
+        { Seconds = seconds; Nanoseconds = nanoseconds }
     
     /// <summary>
     /// Gets the current time as a DateTime structure
@@ -285,18 +364,52 @@ module Time =
     /// <returns>A string representation</returns>
     let toString (dateTime: DateTime): string =
         let yearStr = if dateTime.Year < 1000 then 
-                        String.padLeft '0' 4 (string dateTime.Year)
-                      else string dateTime.Year
-        let monthStr = String.padLeft '0' 2 (string dateTime.Month)
-        let dayStr = String.padLeft '0' 2 (string dateTime.Day)
-        let hourStr = String.padLeft '0' 2 (string dateTime.Hour)
-        let minuteStr = String.padLeft '0' 2 (string dateTime.Minute)
-        let secondStr = String.padLeft '0' 2 (string dateTime.Second)
+                            padLeft '0' 4 (string dateTime.Year)
+                        else string dateTime.Year
+        let monthStr = padLeft '0' 2 (string dateTime.Month)
+        let dayStr = padLeft '0' 2 (string dateTime.Day)
+        let hourStr = padLeft '0' 2 (string dateTime.Hour)
+        let minuteStr = padLeft '0' 2 (string dateTime.Minute)
+        let secondStr = padLeft '0' 2 (string dateTime.Second)
+        let msStr = padLeft '0' 3 (string dateTime.Millisecond)
+
+        let datePart = concat3 yearStr "-" (concat3 monthStr "-" dayStr)
+
+        let timePart = concat3 hourStr ":" (concat3 minuteStr ":" (concat3 secondStr "." msStr))
+
+        concat3 datePart " " timePart
+    
+    /// <summary>
+    /// Formats a Timestamp as an ISO 8601 string
+    /// </summary>
+    /// <param name="timestamp">The Timestamp to format</param>
+    /// <returns>An ISO 8601 string representation</returns>
+    let timestampToIsoString (timestamp: Timestamp): string =
+        let dateTime = timestampToDateTime timestamp
         
-        String.concat "" [
-            yearStr; "-"; monthStr; "-"; dayStr; " ";
-            hourStr; ":"; minuteStr; ":"; secondStr
-        ]
+        let yearStr = if dateTime.Year < 1000 then 
+                            padLeft '0' 4 (string dateTime.Year)
+                        else string dateTime.Year
+        let monthStr = padLeft '0' 2 (string dateTime.Month)
+        let dayStr = padLeft '0' 2 (string dateTime.Day)
+        let hourStr = padLeft '0' 2 (string dateTime.Hour)
+        let minuteStr = padLeft '0' 2 (string dateTime.Minute)
+        let secondStr = padLeft '0' 2 (string dateTime.Second)
+        
+        let fracSecs = 
+            if timestamp.Nanoseconds = 0 then ""
+            elif timestamp.Nanoseconds % 1000000 = 0 then
+                concat "." (padLeft '0' 3 (string (timestamp.Nanoseconds / 1000000)))
+            elif timestamp.Nanoseconds % 1000 = 0 then
+                concat "." (padLeft '0' 6 (string (timestamp.Nanoseconds / 1000)))
+            else
+                concat "." (padLeft '0' 9 (string timestamp.Nanoseconds))
+        
+        let datePart = concat3 yearStr "-" (concat3 monthStr "-" dayStr)
+        
+        let timePart = concat3 hourStr ":" (concat3 minuteStr ":" secondStr)
+        
+        concat4 datePart "T" (concat timePart fracSecs) "Z"
     
     /// <summary>
     /// Creates a TimeSpan structure from total milliseconds
@@ -304,17 +417,17 @@ module Time =
     /// <param name="totalMilliseconds">Total milliseconds</param>
     /// <returns>A new TimeSpan structure</returns>
     let fromMilliseconds (totalMilliseconds: int64): TimeSpan =
-        let ms = Numerics.modulo totalMilliseconds 1000L
-        let totalSeconds = Numerics.divide totalMilliseconds 1000L
+        let ms = modulo totalMilliseconds 1000L
+        let totalSeconds = divide totalMilliseconds 1000L
         
-        let s = Numerics.modulo totalSeconds 60L
-        let totalMinutes = Numerics.divide totalSeconds 60L
+        let s = modulo totalSeconds 60L
+        let totalMinutes = divide totalSeconds 60L
         
-        let m = Numerics.modulo totalMinutes 60L
-        let totalHours = Numerics.divide totalMinutes 60L
+        let m = modulo totalMinutes 60L
+        let totalHours = divide totalMinutes 60L
         
-        let h = Numerics.modulo totalHours 24L
-        let d = Numerics.divide totalHours 24L
+        let h = modulo totalHours 24L
+        let d = divide totalHours 24L
         
         {
             Days = int d
@@ -348,11 +461,19 @@ module Time =
     /// <param name="timeSpan">The time span</param>
     /// <returns>Total milliseconds</returns>
     let totalMilliseconds (timeSpan: TimeSpan): int64 =
-        Numerics.add (int64 timeSpan.Milliseconds)
-            (Numerics.add (Numerics.multiply (int64 timeSpan.Seconds) 1000L)
-                 (Numerics.add (Numerics.multiply (int64 timeSpan.Minutes) 60000L)
-                      (Numerics.add (Numerics.multiply (int64 timeSpan.Hours) 3600000L)
-                           (Numerics.multiply (int64 timeSpan.Days) 86400000L))))
+        add (int64 timeSpan.Milliseconds)
+            (add (multiply (int64 timeSpan.Seconds) 1000L)
+                 (add (multiply (int64 timeSpan.Minutes) 60000L)
+                      (add (multiply (int64 timeSpan.Hours) 3600000L)
+                           (multiply (int64 timeSpan.Days) 86400000L))))
+    
+    /// <summary>
+    /// Gets the total seconds in a time span
+    /// </summary>
+    /// <param name="timeSpan">The time span</param>
+    /// <returns>Total seconds</returns>
+    let totalSeconds (timeSpan: TimeSpan): float =
+        float (totalMilliseconds timeSpan) / 1000.0
     
     /// <summary>
     /// Adds a time span to a date time
@@ -363,11 +484,11 @@ module Time =
     let addTimeSpan (dateTime: DateTime) (timeSpan: TimeSpan): DateTime =
         let timestamp = dateTimeToUnixTimestamp dateTime
         let ms = totalMilliseconds timeSpan
-        let newTimestamp = Numerics.add timestamp (Numerics.divide ms 1000L)
+        let newTimestamp = add timestamp (divide ms 1000L)
         
         // Handle milliseconds separately
         let newDateTime = unixTimestampToDateTime newTimestamp
-        { newDateTime with Millisecond = Numerics.add newDateTime.Millisecond (int (Numerics.modulo ms 1000L)) }
+        { newDateTime with Millisecond = add newDateTime.Millisecond (int (modulo ms 1000L)) }
     
     /// <summary>
     /// Subtracts a time span from a date time
@@ -378,14 +499,14 @@ module Time =
     let subtractTimeSpan (dateTime: DateTime) (timeSpan: TimeSpan): DateTime =
         let timestamp = dateTimeToUnixTimestamp dateTime
         let ms = totalMilliseconds timeSpan
-        let newTimestamp = Numerics.subtract timestamp (Numerics.divide ms 1000L)
+        let newTimestamp = subtract timestamp (divide ms 1000L)
         
         // Handle milliseconds separately
         let newDateTime = unixTimestampToDateTime newTimestamp
-        let newMillisecond = Numerics.subtract newDateTime.Millisecond (int (Numerics.modulo ms 1000L))
+        let newMillisecond = subtract newDateTime.Millisecond (int (modulo ms 1000L))
         
-        if Numerics.lessThan newMillisecond 0 then
-            { newDateTime with Millisecond = Numerics.add 1000 newMillisecond }
+        if lessThan newMillisecond 0 then
+            { newDateTime with Millisecond = add 1000 newMillisecond }
         else
             { newDateTime with Millisecond = newMillisecond }
             
@@ -409,10 +530,10 @@ module Time =
         
         // Write 8-byte timestamp
         for i = 0 to 7 do
-            let shiftedValue = timestamp >>> (Numerics.multiply i 8)
+            let shiftedValue = timestamp >>> (multiply i 8)
             let maskedValue = shiftedValue &&& 0xFFL
             buffer.[currentIndex] <- byte maskedValue
-            currentIndex <- Numerics.add currentIndex 1
+            currentIndex <- add currentIndex 1
             
         currentIndex
     
@@ -428,9 +549,9 @@ module Time =
         
         for i = 0 to 7 do
             let byteValue = int64 buffer.[currentIndex]
-            let shiftedValue = byteValue <<< (Numerics.multiply i 8)
+            let shiftedValue = byteValue <<< (multiply i 8)
             timestamp <- timestamp ||| shiftedValue
-            currentIndex <- Numerics.add currentIndex 1
+            currentIndex <- add currentIndex 1
         
         unixTimestampToDateTime timestamp, currentIndex
         
@@ -441,13 +562,13 @@ module Time =
     /// <param name="month">The month (1-12)</param>
     /// <returns>The number of days in the month</returns>
     let daysInMonth (year: int) (month: int): int =
-        if Numerics.lessThan month 1 || Numerics.greaterThan month 12 then
-            failwith (String.concat "" ["Month out of range: "; string month])
+        if lessThan month 1 || greaterThan month 12 then
+            failwithf "Month out of range: %d"month
             
         if isLeapYear year then
-            daysInMonthLeapYear.[Numerics.subtract month 1]
+            daysInMonthLeapYearArray.[subtract month 1]
         else
-            daysInMonth.[Numerics.subtract month 1]
+            daysInMonthArray.[subtract month 1]
             
     /// <summary>
     /// Compares two DateTimes
@@ -467,4 +588,4 @@ module Time =
         elif ts1 > ts2 then 1
         else
             // Compare milliseconds
-            Numerics.compare dt1.Millisecond dt2.Millisecond
+            compare dt1.Millisecond dt2.Millisecond

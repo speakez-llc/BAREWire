@@ -1,3 +1,6 @@
+/// <summary>
+/// Platform interface definitions for BAREWire time functions
+/// </summary>
 module BAREWire.Core.Time.Platform
 
 /// <summary>
@@ -35,6 +38,11 @@ type IPlatformTime =
     abstract member Sleep: milliseconds:int -> unit
 
 /// <summary>
+/// Exception thrown when platform implementation cannot be determined
+/// </summary>
+exception PlatformNotSupportedException of string
+
+/// <summary>
 /// Function to get the appropriate platform implementation
 /// </summary>
 let getImplementation() =
@@ -51,5 +59,5 @@ let getImplementation() =
     #elif WASM
     WebAssemblyTime.createImplementation()
     #else
-    failwith "Unsupported platform"
+    raise (PlatformNotSupportedException "Current platform not supported by BAREWire Time implementation")
     #endif

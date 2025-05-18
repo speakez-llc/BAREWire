@@ -55,3 +55,7 @@ CodeCoverage/
 TestResult.xml
 nunit-*.xml
 .fake
+src/.idea/.idea.src.dir/.idea/AndroidProjectSystem.xml
+src/.idea/.idea.src.dir/.idea/encodings.xml
+src/.idea/.idea.src.dir/.idea/indexLayout.xml
+src/.idea/.idea.src.dir/.idea/vcs.xml
