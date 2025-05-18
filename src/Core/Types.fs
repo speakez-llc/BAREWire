@@ -1,5 +1,6 @@
 namespace BAREWire.Core
 
+open Alloy
 open FSharp.UMX
 
 /// <summary>
@@ -74,7 +75,7 @@ type AggregateType =
 /// <summary>
 /// A field in a BARE struct
 /// </summary>
-and StructField = {
+and [<Struct>] StructField = {
     /// <summary>
     /// The name of the field
     /// </summary>
@@ -107,7 +108,7 @@ type Size = {
     /// <summary>
     /// The maximum size in bytes (None if variable-length)
     /// </summary>
-    Max: option<int<bytes>>
+    Max: ValueOption<int<bytes>>
     
     /// <summary>
     /// Whether the size is fixed (Min = Max)
@@ -130,6 +131,7 @@ type Alignment = {
 /// A schema definition with type safety
 /// </summary>
 /// <typeparam name="'state">The validation state of the schema</typeparam>
+[<Struct>]
 type SchemaDefinition<[<Measure>] 'state> = {
     /// <summary>
     /// The types defined in this schema
@@ -174,3 +176,68 @@ type Address<[<Measure>] 'region> = {
     /// </summary>
     Offset: int<offset>
 }
+
+/// <summary>
+/// A type-safe pointer to native memory
+/// </summary>
+/// <typeparam name="'T">The type of data pointed to</typeparam>
+/// <typeparam name="'region">The memory region the pointer refers to</typeparam>
+/// <typeparam name="'access">The access pattern for the pointer (read/write/etc.)</typeparam>
+[<Struct>]
+type Ptr<'T, [<Measure>] 'region, [<Measure>] 'access> = {
+    /// <summary>
+    /// The native address
+    /// </summary>
+    Address: nativeint
+}
+
+/// <summary>
+/// Access patterns for memory pointers
+/// </summary>
+module Access =
+    /// <summary>
+    /// Read-only access
+    /// </summary>
+    [<Measure>] type ReadOnly
+    
+    /// <summary>
+    /// Read-write access
+    /// </summary>
+    [<Measure>] type ReadWrite
+    
+    /// <summary>
+    /// Write-only access
+    /// </summary>
+    [<Measure>] type WriteOnly
+
+/// <summary>
+/// Contains functions for working with type sizes
+/// </summary>
+module Size =
+    /// <summary>
+    /// Creates a size representation for a fixed-size type
+    /// </summary>
+    /// <param name="size">The fixed size in bytes</param>
+    /// <returns>A size with both Min and Max set to the same value</returns>
+    let inline fixed' (size: int<bytes>): Size =
+        { Min = size; Max = ValueOption.Some size; IsFixed = true }
+    
+    /// <summary>
+    /// Creates a size representation for a variable-size type
+    /// </summary>
+    /// <param name="min">The minimum size in bytes</param>
+    /// <param name="max">The optional maximum size in bytes</param>
+    /// <returns>A size with the specified Min and Max</returns>
+    let inline variable (min: int<bytes>) (max: ValueOption<int<bytes>>): Size =
+        { Min = min; Max = max; IsFixed = false }
+        
+    /// <summary>
+    /// Calculates size information from dimensions
+    /// </summary>
+    /// <param name="width">Width</param>
+    /// <param name="height">Height</param>
+    /// <param name="channels">Channels</param>
+    /// <returns>Size in bytes</returns>
+    let inline fromDimensions (width: int) (height: int) (channels: int): int<bytes> =
+        let totalSize = width * height * channels
+        Alloy.Numerics.intWithUnit<bytes> totalSize

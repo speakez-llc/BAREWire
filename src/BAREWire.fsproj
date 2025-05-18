@@ -57,6 +57,10 @@
 
   <ItemGroup>
     <PackageReference Include="FSharp.UMX" Version="1.0.0" />
+    <Reference Include="Alloy">
+      <HintPath>D:\repos\Alloy\src\bin\Debug\net8.0\Alloy.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
 
   <PropertyGroup>

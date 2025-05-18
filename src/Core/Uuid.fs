@@ -1,5 +1,7 @@
 namespace BAREWire.Core
 
+open Alloy
+
 /// <summary>
 /// Pure F# UUID implementation (RFC 4122) with no System.Guid dependencies
 /// </summary>

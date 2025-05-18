@@ -3,9 +3,10 @@
 namespace BAREWire.Core
 
 open FSharp.NativeInterop
+open Alloy
 
 /// <summary>
-/// Pure F# binary conversion utilities
+/// Pure F# binary conversion utilities built on Alloy's zero-cost abstractions
 /// </summary>
 [<RequireQualifiedAccess>]
 module Binary =
@@ -228,3 +229,85 @@ module Binary =
         
         b0 ||| (b1 <<< 8) ||| (b2 <<< 16) ||| (b3 <<< 24) |||
         (b4 <<< 32) ||| (b5 <<< 40) ||| (b6 <<< 48) ||| (b7 <<< 56)
+        
+    /// <summary>
+    /// Write an Int16 value to a buffer
+    /// </summary>
+    /// <param name="value">The value to write</param>
+    /// <param name="buffer">The destination buffer</param>
+    /// <param name="startIndex">The starting index</param>
+    let writeInt16 (value: int16) (buffer: byte[]) (startIndex: int) : unit =
+        if startIndex + 1 >= buffer.Length then failwith "Buffer too small"
+        buffer.[startIndex] <- byte (value &&& 0xFFs)
+        buffer.[startIndex + 1] <- byte (value >>> 8)
+    
+    /// <summary>
+    /// Write a UInt16 value to a buffer
+    /// </summary>
+    /// <param name="value">The value to write</param>
+    /// <param name="buffer">The destination buffer</param>
+    /// <param name="startIndex">The starting index</param>
+    let writeUInt16 (value: uint16) (buffer: byte[]) (startIndex: int) : unit =
+        if startIndex + 1 >= buffer.Length then failwith "Buffer too small"
+        buffer.[startIndex] <- byte (value &&& 0xFFus)
+        buffer.[startIndex + 1] <- byte (value >>> 8)
+    
+    /// <summary>
+    /// Write an Int32 value to a buffer
+    /// </summary>
+    /// <param name="value">The value to write</param>
+    /// <param name="buffer">The destination buffer</param>
+    /// <param name="startIndex">The starting index</param>
+    let writeInt32 (value: int32) (buffer: byte[]) (startIndex: int) : unit =
+        if startIndex + 3 >= buffer.Length then failwith "Buffer too small"
+        buffer.[startIndex] <- byte (value &&& 0xFF)
+        buffer.[startIndex + 1] <- byte ((value >>> 8) &&& 0xFF)
+        buffer.[startIndex + 2] <- byte ((value >>> 16) &&& 0xFF)
+        buffer.[startIndex + 3] <- byte ((value >>> 24) &&& 0xFF)
+    
+    /// <summary>
+    /// Write a UInt32 value to a buffer
+    /// </summary>
+    /// <param name="value">The value to write</param>
+    /// <param name="buffer">The destination buffer</param>
+    /// <param name="startIndex">The starting index</param>
+    let writeUInt32 (value: uint32) (buffer: byte[]) (startIndex: int) : unit =
+        if startIndex + 3 >= buffer.Length then failwith "Buffer too small"
+        buffer.[startIndex] <- byte (value &&& 0xFFu)
+        buffer.[startIndex + 1] <- byte ((value >>> 8) &&& 0xFFu)
+        buffer.[startIndex + 2] <- byte ((value >>> 16) &&& 0xFFu)
+        buffer.[startIndex + 3] <- byte ((value >>> 24) &&& 0xFFu)
+    
+    /// <summary>
+    /// Write an Int64 value to a buffer
+    /// </summary>
+    /// <param name="value">The value to write</param>
+    /// <param name="buffer">The destination buffer</param>
+    /// <param name="startIndex">The starting index</param>
+    let writeInt64 (value: int64) (buffer: byte[]) (startIndex: int) : unit =
+        if startIndex + 7 >= buffer.Length then failwith "Buffer too small"
+        buffer.[startIndex] <- byte (value &&& 0xFFL)
+        buffer.[startIndex + 1] <- byte ((value >>> 8) &&& 0xFFL)
+        buffer.[startIndex + 2] <- byte ((value >>> 16) &&& 0xFFL)
+        buffer.[startIndex + 3] <- byte ((value >>> 24) &&& 0xFFL)
+        buffer.[startIndex + 4] <- byte ((value >>> 32) &&& 0xFFL)
+        buffer.[startIndex + 5] <- byte ((value >>> 40) &&& 0xFFL)
+        buffer.[startIndex + 6] <- byte ((value >>> 48) &&& 0xFFL)
+        buffer.[startIndex + 7] <- byte ((value >>> 56) &&& 0xFFL)
+    
+    /// <summary>
+    /// Write a UInt64 value to a buffer
+    /// </summary>
+    /// <param name="value">The value to write</param>
+    /// <param name="buffer">The destination buffer</param>
+    /// <param name="startIndex">The starting index</param>
+    let writeUInt64 (value: uint64) (buffer: byte[]) (startIndex: int) : unit =
+        if startIndex + 7 >= buffer.Length then failwith "Buffer too small"
+        buffer.[startIndex] <- byte (value &&& 0xFFUL)
+        buffer.[startIndex + 1] <- byte ((value >>> 8) &&& 0xFFUL)
+        buffer.[startIndex + 2] <- byte ((value >>> 16) &&& 0xFFUL)
+        buffer.[startIndex + 3] <- byte ((value >>> 24) &&& 0xFFUL)
+        buffer.[startIndex + 4] <- byte ((value >>> 32) &&& 0xFFUL)
+        buffer.[startIndex + 5] <- byte ((value >>> 40) &&& 0xFFUL)
+        buffer.[startIndex + 6] <- byte ((value >>> 48) &&& 0xFFUL)
+        buffer.[startIndex + 7] <- byte ((value >>> 56) &&& 0xFFUL)

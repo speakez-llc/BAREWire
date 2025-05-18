@@ -1,62 +1,35 @@
 namespace BAREWire.Core
 
+open Alloy
+
 /// <summary>
-/// Pure F# time utilities with no System.DateTime dependencies
+/// Pure F# time utilities with no System.DateTime dependencies, built on Alloy's zero-cost abstractions
 /// </summary>
 module Time =
-    /// <summary>
-    /// Unix epoch (1970-01-01) in ticks (custom epoch definition)
-    /// </summary>
     let private unixEpochTicks = 621355968000000000L // Constant representing 1970-01-01
     
-    /// <summary>
-    /// Ticks per second
-    /// </summary>
     let private ticksPerSecond = 10000000L
-    
-    /// <summary>
-    /// Ticks per millisecond
-    /// </summary>
+
     let private ticksPerMillisecond = 10000L
-    
-    /// <summary>
-    /// Ticks per minute
-    /// </summary>
-    let private ticksPerMinute = 60L * ticksPerSecond
-    
-    /// <summary>
-    /// Ticks per hour
-    /// </summary>
-    let private ticksPerHour = 60L * ticksPerMinute
-    
-    /// <summary>
-    /// Ticks per day
-    /// </summary>
-    let private ticksPerDay = 24L * ticksPerHour
-    
-    /// <summary>
-    /// Days per year (non-leap)
-    /// </summary>
+
+    let private ticksPerMinute = Numerics.multiply 60L ticksPerSecond
+
+    let private ticksPerHour = multiply 60L ticksPerMinute
+
+    let private ticksPerDay = multiply 24L ticksPerHour
+
     let private daysPerYear = 365L
-    
-    /// <summary>
-    /// Days per leap year
-    /// </summary>
+
     let private daysPerLeapYear = 366L
-    
-    /// <summary>
-    /// Days in each month (non-leap year)
-    /// </summary>
+
     let private daysInMonth = [|31; 28; 31; 30; 31; 30; 31; 31; 30; 31; 30; 31|]
-    
-    /// <summary>
-    /// Days in each month (leap year)
-    /// </summary>
+
     let private daysInMonthLeapYear = [|31; 29; 31; 30; 31; 30; 31; 31; 30; 31; 30; 31|]
     
     /// <summary>
     /// Represents a date and time structure
     /// </summary>
+    [<Struct>]
     type DateTime = {
         /// <summary>The year component (1-9999)</summary>
         Year: int
@@ -93,7 +66,7 @@ module Time =
         
         // For testing, we'll just return a fixed value
         // In production, this would call the platform provider
-        unixEpochTicks + (1670000000L * ticksPerSecond)
+        Alloy.Numerics.add unixEpochTicks (multiply 1670000000L ticksPerSecond)
     
     /// <summary>
     /// Gets the current Unix timestamp (seconds since 1970-01-01)
@@ -101,7 +74,7 @@ module Time =
     /// <returns>The current Unix timestamp</returns>
     let currentUnixTimestamp (): int64 =
         let ticks = currentTicks()
-        (ticks - unixEpochTicks) / ticksPerSecond
+        divide (subtract ticks unixEpochTicks) ticksPerSecond
     
     /// <summary>
     /// Converts Unix timestamp to ticks
@@ -109,7 +82,7 @@ module Time =
     /// <param name="timestamp">The Unix timestamp in seconds</param>
     /// <returns>The timestamp in ticks</returns>
     let unixTimestampToTicks (timestamp: int64): int64 =
-        unixEpochTicks + (timestamp * ticksPerSecond)
+        add unixEpochTicks (multiply timestamp ticksPerSecond)
     
     /// <summary>
     /// Converts ticks to Unix timestamp
@@ -117,7 +90,7 @@ module Time =
     /// <param name="ticks">The timestamp in ticks</param>
     /// <returns>The Unix timestamp in seconds</returns>
     let ticksToUnixTimestamp (ticks: int64): int64 =
-        (ticks - unixEpochTicks) / ticksPerSecond
+        divide (subtract ticks unixEpochTicks) ticksPerSecond
     
     /// <summary>
     /// Converts a Unix timestamp to a DateTime structure
@@ -125,42 +98,37 @@ module Time =
     /// <param name="timestamp">The Unix timestamp in seconds</param>
     /// <returns>A DateTime structure representing the timestamp</returns>
     let unixTimestampToDateTime (timestamp: int64): DateTime =
-        // Calculate days since epoch
         let mutable remainingSecs = timestamp
-        let days = remainingSecs / 86400L // seconds per day
+        let days = divide remainingSecs 86400L // seconds per day
         remainingSecs <- remainingSecs % 86400L
-        
-        // Calculate time components
-        let hours = int (remainingSecs / 3600L)
+
+        let hours = int (divide remainingSecs 3600L)
         remainingSecs <- remainingSecs % 3600L
         
-        let minutes = int (remainingSecs / 60L)
+        let minutes = int (divide remainingSecs 60L)
         remainingSecs <- remainingSecs % 60L
         
         let seconds = int remainingSecs
-        
-        // Calculate date components
+
         let mutable year = 1970
         let mutable remainingDays = days
-        
-        // Calculate years
-        while remainingDays >= (if isLeapYear year then daysPerLeapYear else daysPerYear) do
+
+        while greaterThanOrEqual remainingDays (if isLeapYear year then daysPerLeapYear else daysPerYear) do
             let daysInYear = if isLeapYear year then daysPerLeapYear else daysPerYear
-            remainingDays <- remainingDays - daysInYear
-            year <- year + 1
-        
-        // Calculate month and day
+            remainingDays <- subtract remainingDays daysInYear
+            year <- add year 1
+
         let monthDays = if isLeapYear year then daysInMonthLeapYear else daysInMonth
         
         let mutable month = 0
-        while month < 12 && remainingDays >= int64 monthDays.[month] do
-            remainingDays <- remainingDays - int64 monthDays.[month]
-            month <- month + 1
+        while lessThan month 12 && greaterThanOrEqual remainingDays (int64 monthDays.[month]) do
+            remainingDays <- subtract remainingDays (int64 monthDays.[month])
+            month <- add month 1
         
         {
             Year = year
-            Month = month + 1
-            Day = int remainingDays + 1
+            Month = add month 1
+            Day = add (int remainingDays) 1
             Hour = hours
             Minute = minutes
             Second = seconds
@@ -176,23 +144,23 @@ module Time =
         // Count days from epoch to start of year
         let mutable days = 0L
         for y = 1970 to dateTime.Year - 1 do
-            days <- days + (if isLeapYear y then daysPerLeapYear else daysPerYear)
+            days <- add days (if isLeapYear y then daysPerLeapYear else daysPerYear)
         
         // Add days for months in current year
         let monthDays = if isLeapYear dateTime.Year then daysInMonthLeapYear else daysInMonth
         
         for m = 0 to dateTime.Month - 2 do
-            days <- days + int64 monthDays.[m]
+            days <- add days (int64 monthDays.[m])
         
         // Add days in current month
-        days <- days + int64 (dateTime.Day - 1)
+        days <- add days (int64 (subtract dateTime.Day 1))
         
         // Calculate total seconds
         let totalSeconds = 
-            days * 86400L +
-            int64 dateTime.Hour * 3600L +
-            int64 dateTime.Minute * 60L +
-            int64 dateTime.Second
+            add (multiply days 86400L)
+                (add (multiply (int64 dateTime.Hour) 3600L)
+                     (add (multiply (int64 dateTime.Minute) 60L)
+                          (int64 dateTime.Second)))
         
         totalSeconds
     
@@ -210,32 +178,32 @@ module Time =
     /// <exception cref="System.Exception">Thrown when the parameters are invalid</exception>
     let createDateTime (year: int) (month: int) (day: int) (hour: int) (minute: int) (second: int) (millisecond: int): DateTime =
         // Validate parameters
-        if year < 1 || year > 9999 then
-            failwith $"Year out of range: {year}"
+        if lessThan year 1 || greaterThan year 9999 then
+            failwith (concat "Year out of range: " (string year))
         
-        if month < 1 || month > 12 then
-            failwith $"Month out of range: {month}"
+        if lessThan month 1 || greaterThan month 12 then
+            failwith (concat "Month out of range: " (string month))
         
         let daysInCurrentMonth = 
             if isLeapYear year then
-                daysInMonthLeapYear.[month - 1]
+                daysInMonthLeapYear.[subtract month 1]
             else
-                daysInMonth.[month - 1]
+                daysInMonth.[subtract month 1]
                 
-        if day < 1 || day > daysInCurrentMonth then
-            failwith $"Day out of range: {day}"
+        if lessThan day 1 || greaterThan day daysInCurrentMonth then
+            failwith (concat "Day out of range: " (string day))
         
-        if hour < 0 || hour > 23 then
-            failwith $"Hour out of range: {hour}"
+        if lessThan hour 0 || greaterThan hour 23 then
+            failwith (concat "Hour out of range: " (string hour))
         
-        if minute < 0 || minute > 59 then
-            failwith $"Minute out of range: {minute}"
+        if lessThan minute 0 || greaterThan minute 59 then
+            failwith (concat "Minute out of range: " (string minute))
         
-        if second < 0 || second > 59 then
-            failwith $"Second out of range: {second}"
+        if lessThan second 0 || greaterThan second 59 then
+            failwith (concat "Second out of range: " (string second))
         
-        if millisecond < 0 || millisecond > 999 then
-            failwith $"Millisecond out of range: {millisecond}"
+        if lessThan millisecond 0 || greaterThan millisecond 999 then
+            failwith (concat "Millisecond out of range: " (string millisecond))
         
         {
             Year = year
@@ -261,11 +229,22 @@ module Time =
     /// <param name="dateTime">The DateTime to format</param>
     /// <returns>A string representation</returns>
     let toString (dateTime: DateTime): string =
-        $"{dateTime.Year:D4}-{dateTime.Month:D2}-{dateTime.Day:D2} {dateTime.Hour:D2}:{dateTime.Minute:D2}:{dateTime.Second:D2}"
+        let yearStr = if dateTime.Year < 1000 then 
+                        String.padLeft '0' 4 (string dateTime.Year)
+                      else string dateTime.Year
+        let monthStr = String.padLeft '0' 2 (string dateTime.Month)
+        let dayStr = String.padLeft '0' 2 (string dateTime.Day)
+        let hourStr = String.padLeft '0' 2 (string dateTime.Hour)
+        let minuteStr = String.padLeft '0' 2 (string dateTime.Minute)
+        let secondStr = String.padLeft '0' 2 (string dateTime.Second)
+        
+        concat (concat (concat (concat (concat (concat yearStr "-") monthStr) "-") dayStr) " ")
+               (concat (concat (concat hourStr ":") minuteStr) (concat ":" secondStr))
     
     /// <summary>
     /// Represents a time span structure
     /// </summary>
+    [<Struct>]
     type TimeSpan = {
         /// <summary>The days component</summary>
         Days: int
@@ -286,16 +265,16 @@ module Time =
     /// <returns>A new TimeSpan structure</returns>
     let fromMilliseconds (totalMilliseconds: int64): TimeSpan =
         let ms = totalMilliseconds % 1000L
-        let totalSeconds = totalMilliseconds / 1000L
+        let totalSeconds = divide totalMilliseconds 1000L
         
         let s = totalSeconds % 60L
-        let totalMinutes = totalSeconds / 60L
+        let totalMinutes = divide totalSeconds 60L
         
         let m = totalMinutes % 60L
-        let totalHours = totalMinutes / 60L
+        let totalHours = divide totalMinutes 60L
         
         let h = totalHours % 24L
-        let d = totalHours / 24L
+        let d = divide totalHours 24L
         
         {
             Days = int d
@@ -329,11 +308,11 @@ module Time =
     /// <param name="timeSpan">The time span</param>
     /// <returns>Total milliseconds</returns>
     let totalMilliseconds (timeSpan: TimeSpan): int64 =
-        int64 timeSpan.Milliseconds +
-        int64 timeSpan.Seconds * 1000L +
-        int64 timeSpan.Minutes * 60000L +
-        int64 timeSpan.Hours * 3600000L +
-        int64 timeSpan.Days * 86400000L
+        add (int64 timeSpan.Milliseconds)
+            (add (multiply (int64 timeSpan.Seconds) 1000L)
+                 (add (multiply (int64 timeSpan.Minutes) 60000L)
+                      (add (multiply (int64 timeSpan.Hours) 3600000L)
+                           (multiply (int64 timeSpan.Days) 86400000L))))
     
     /// <summary>
     /// Adds a time span to a date time
@@ -344,11 +323,11 @@ module Time =
     let addTimeSpan (dateTime: DateTime) (timeSpan: TimeSpan): DateTime =
         let timestamp = dateTimeToUnixTimestamp dateTime
         let ms = totalMilliseconds timeSpan
-        let newTimestamp = timestamp + (ms / 1000L)
+        let newTimestamp = add timestamp (divide ms 1000L)
         
         // Handle milliseconds separately
         let newDateTime = unixTimestampToDateTime newTimestamp
-        { newDateTime with Millisecond = newDateTime.Millisecond + int (ms % 1000L) }
+        { newDateTime with Millisecond = add newDateTime.Millisecond (int (ms % 1000L)) }
     
     /// <summary>
     /// Subtracts a time span from a date time
@@ -359,13 +338,51 @@ module Time =
     let subtractTimeSpan (dateTime: DateTime) (timeSpan: TimeSpan): DateTime =
         let timestamp = dateTimeToUnixTimestamp dateTime
         let ms = totalMilliseconds timeSpan
-        let newTimestamp = timestamp - (ms / 1000L)
+        let newTimestamp = subtract timestamp (divide ms 1000L)
         
         // Handle milliseconds separately
         let newDateTime = unixTimestampToDateTime newTimestamp
-        let newMillisecond = newDateTime.Millisecond - int (ms % 1000L)
+        let newMillisecond = subtract newDateTime.Millisecond (int (ms % 1000L))
         
-        if newMillisecond < 0 then
-            { newDateTime with Millisecond = 1000 + newMillisecond }
+        if lessThan newMillisecond 0 then
+            { newDateTime with Millisecond = add 1000 newMillisecond }
         else
             { newDateTime with Millisecond = newMillisecond }
+            
+    /// <summary>
+    /// Writes a DateTime to a byte array
+    /// </summary>
+    /// <param name="dateTime">The DateTime to write</param>
+    /// <param name="buffer">The destination buffer</param>
+    /// <param name="startIndex">The starting index</param>
+    /// <returns>The new index after writing</returns>
+    let writeDateTimeToBytes (dateTime: DateTime) (buffer: byte[]) (startIndex: int): int =
+        let timestamp = dateTimeToUnixTimestamp dateTime
+        let mutable currentIndex = startIndex
+        
+        // Write 8-byte timestamp
+        for i = 0 to 7 do
+            let shiftedValue = timestamp >>> (multiply i 8)
+            let maskedValue = shiftedValue &&& 0xFFL
+            buffer.[currentIndex] <- byte maskedValue
+            currentIndex <- add currentIndex 1
+            
+        currentIndex
+    
+    /// <summary>
+    /// Reads a DateTime from a byte array
+    /// </summary>
+    /// <param name="buffer">The source buffer</param>
+    /// <param name="startIndex">The starting index</param>
+    /// <returns>The DateTime and the new index</returns>
+    let readDateTimeFromBytes (buffer: byte[]) (startIndex: int): DateTime * int =
+        let mutable timestamp = 0L
+        let mutable currentIndex = startIndex
+        
+        for i = 0 to 7 do
+            let byteValue = int64 buffer.[currentIndex]
+            let shiftedValue = byteValue <<< (multiply i 8)
+            timestamp <- timestamp ||| shiftedValue
+            currentIndex <- add currentIndex 1
+        
+        unixTimestampToDateTime timestamp, currentIndex

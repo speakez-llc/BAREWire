@@ -1,13 +1,13 @@
 namespace BAREWire.Encoding
                     
 open FSharp.UMX
+open Alloy
 open BAREWire.Core
 open BAREWire.Core.Error
-open BAREWire.Encoding.Encoder
-open BAREWire.Encoding.Decoder
 
 /// <summary>
 /// Combined encoding and decoding operations for BARE types
+/// leveraging Alloy's zero-cost abstractions
 /// </summary>
 module Codec =
     /// <summary>
@@ -17,7 +17,7 @@ module Codec =
     /// <param name="fieldName">The name of the field to retrieve</param>
     /// <returns>The field value as an object</returns>
     /// <exception cref="System.Exception">Thrown when the field is not found</exception>
-    let getRecordField (record: obj) (fieldName: string): obj =
+    let inline getRecordField (record: obj) (fieldName: string): obj =
         let recordType = record.GetType()
         let property = recordType.GetProperty(fieldName)
         if property <> null then
@@ -38,7 +38,7 @@ module Codec =
     /// This is a placeholder implementation. In a real implementation,
     /// this would use reflection to create a record instance with the specified field values.
     /// </remarks>
-    let createRecord (fieldValues: Map<string, obj>): obj =
+    let inline createRecord (fieldValues: Map<string, obj>): obj =
         box fieldValues
 
     /// <summary>
@@ -48,7 +48,7 @@ module Codec =
     /// <param name="value">The value to encode</param>
     /// <param name="buffer">The buffer to write to</param>
     /// <returns>A result indicating success or an encoding error</returns>
-    let encode (schema: SchemaDefinition<validated>) (value: 'T) (buffer: Buffer<'a>): Result<unit> =
+    let inline encode (schema: SchemaDefinition<validated>) (value: 'T) (buffer: Buffer<'a>): Result<unit, Error> =
         try
             let rec encodeWithType (typ: Type) (value: obj) (buffer: Buffer<'a>): unit =
                 match typ with
@@ -76,7 +76,7 @@ module Codec =
                 | Aggregate aggType ->
                     match aggType with
                     | Optional innerType ->
-                        let opt = unbox<option<obj>> value
+                        let opt = unbox<ValueOption<obj>> value
                         writeOptional buffer opt (fun buf v -> encodeWithType innerType v buf)
 
                     | List innerType ->
@@ -122,7 +122,7 @@ module Codec =
     /// <param name="schema">The validated schema definition</param>
     /// <param name="memory">The memory region containing the encoded data</param>
     /// <returns>A result containing the decoded value and final offset, or a decoding error</returns>
-    let decode<'T> (schema: SchemaDefinition<validated>) (memory: Memory<'a, 'region>): Result<'T * int<offset>> =
+    let inline decode<'T> (schema: SchemaDefinition<validated>) (memory: Memory<'a, 'region>): Result<'T * int<offset>, Error> =
         try
             let rec decodeWithType (typ: Type) (memory: Memory<'a, 'region>) (offset: int<offset>): obj * int<offset> =
                 match typ with
@@ -234,8 +234,11 @@ module Codec =
 
                 | UserDefined typeName ->
                     // Look up the type in the schema
-                    let actualType = Map.find typeName schema.Types
-                    decodeWithType actualType memory offset
+                    match Map.tryFind typeName schema.Types with
+                    | Some actualType -> 
+                        decodeWithType actualType memory offset
+                    | None -> 
+                        failwith $"Type not found in schema: {typeName}"
 
             // Start decoding with the root type
             let rootType = Map.find schema.Root schema.Types
@@ -251,10 +254,10 @@ module Codec =
     /// <param name="value">The value to encode, wrapped with a measure type</param>
     /// <param name="buffer">The buffer to write to</param>
     /// <returns>A result indicating success or an encoding error</returns>
-    let encodeWithMeasure<'T, [<Measure>] 'm>
+    let inline encodeWithMeasure<'T, [<Measure>] 'm>
                         (schema: SchemaDefinition<validated>)
                         (value: 'T<'m>)
-                        (buffer: Buffer<'a>): Result<unit> =
+                        (buffer: Buffer<'a>): Result<unit, Error> =
         // Unwrap the measure
         let rawValue = UMX.untag value
         // Encode the raw value
@@ -266,9 +269,9 @@ module Codec =
     /// <param name="schema">The validated schema definition</param>
     /// <param name="memory">The memory region containing the encoded data</param>
     /// <returns>A result containing the decoded value (with measure) and final offset, or a decoding error</returns>
-    let decodeWithMeasure<'T, [<Measure>] 'm>
+    let inline decodeWithMeasure<'T, [<Measure>] 'm>
                         (schema: SchemaDefinition<validated>)
-                        (memory: Memory<'a, 'region>): Result<'T<'m> * int<offset>> =
+                        (memory: Memory<'a, 'region>): Result<'T<'m> * int<offset>, Error> =
         // Decode the raw value
         let result = decode<'T> schema memory
         match result with
@@ -276,3 +279,159 @@ module Codec =
             // Wrap with the measure
             Ok (UMX.tag<'m> rawValue, offset)
         | Error err -> Error err
+        
+    /// <summary>
+    /// Calculates the encoded size of a value based on its schema
+    /// </summary>
+    /// <param name="schema">The validated schema definition</param>
+    /// <param name="value">The value to measure</param>
+    /// <returns>A result containing the calculated size in bytes or an error</returns>
+    let inline calculateSize (schema: SchemaDefinition<validated>) (value: 'T): Result<int, Error> =
+        try
+            // Create a counter buffer that just tracks position but doesn't write
+            let mutable position = 0
+            
+            let rec measureWithType (typ: Type) (value: obj): unit =
+                match typ with
+                | Primitive primType ->
+                    match primType with
+                    | UInt -> 
+                        let v = unbox<uint64> value
+                        // Calculate ULEB128 encoding size
+                        let mutable size = 1
+                        let mutable val' = v >>> 7
+                        while val' > 0UL do
+                            size <- size + 1
+                            val' <- val' >>> 7
+                        position <- position + size
+                    | Int -> 
+                        let v = unbox<int64> value
+                        // Calculate zigzag ULEB128 encoding size
+                        let zigzag = (v <<< 1) ^^^ (v >>> 63)
+                        let mutable size = 1
+                        let mutable val' = uint64 zigzag >>> 7
+                        while val' > 0UL do
+                            size <- size + 1
+                            val' <- val' >>> 7
+                        position <- position + size
+                    | U8 -> position <- position + 1
+                    | U16 -> position <- position + 2
+                    | U32 -> position <- position + 4
+                    | U64 -> position <- position + 8
+                    | I8 -> position <- position + 1
+                    | I16 -> position <- position + 2
+                    | I32 -> position <- position + 4
+                    | I64 -> position <- position + 8
+                    | F32 -> position <- position + 4
+                    | F64 -> position <- position + 8
+                    | Bool -> position <- position + 1
+                    | String -> 
+                        let s = unbox<string> value
+                        if String.isNullOrEmpty s then
+                            position <- position + 1 // Just the length byte (0)
+                        else
+                            // Calculate ULEB128 size for length
+                            let byteLength = calculateEncodedLength s
+                            let mutable lenSize = 1
+                            let mutable val' = uint64 byteLength >>> 7
+                            while val' > 0UL do
+                                lenSize <- lenSize + 1
+                                val' <- val' >>> 7
+                            position <- position + lenSize + byteLength
+                    | Data -> 
+                        let data = unbox<byte[]> value
+                        let length = len data
+                        // Calculate ULEB128 size for length
+                        let mutable lenSize = 1
+                        let mutable val' = uint64 length >>> 7
+                        while val' > 0UL do
+                            lenSize <- lenSize + 1
+                            val' <- val' >>> 7
+                        position <- position + lenSize + length
+                    | FixedData length -> position <- position + length
+                    | Void -> () // No bytes for void
+                    | Enum _ -> 
+                        let v = unbox<uint64> value
+                        // Calculate ULEB128 encoding size
+                        let mutable size = 1
+                        let mutable val' = v >>> 7
+                        while val' > 0UL do
+                            size <- size + 1
+                            val' <- val' >>> 7
+                        position <- position + size
+
+                | Aggregate aggType ->
+                    match aggType with
+                    | Optional innerType ->
+                        let opt = unbox<ValueOption<obj>> value
+                        position <- position + 1 // Tag byte
+                        if opt.IsSome then
+                            measureWithType innerType opt.Value
+
+                    | List innerType ->
+                        let list = unbox<obj seq> value
+                        let count = Seq.length list
+                        // Calculate ULEB128 size for length
+                        let mutable lenSize = 1
+                        let mutable val' = uint64 count >>> 7
+                        while val' > 0UL do
+                            lenSize <- lenSize + 1
+                            val' <- val' >>> 7
+                        position <- position + lenSize
+                        
+                        // Measure each item
+                        for item in list do
+                            measureWithType innerType item
+
+                    | FixedList (innerType, _) ->
+                        let list = unbox<obj seq> value
+                        // No length prefix for fixed lists
+                        for item in list do
+                            measureWithType innerType item
+
+                    | Map (keyType, valueType) ->
+                        let map = unbox<(obj * obj) seq> value
+                        let count = Seq.length map
+                        // Calculate ULEB128 size for length
+                        let mutable lenSize = 1
+                        let mutable val' = uint64 count >>> 7
+                        while val' > 0UL do
+                            lenSize <- lenSize + 1
+                            val' <- val' >>> 7
+                        position <- position + lenSize
+                        
+                        // Measure each key-value pair
+                        for (k, v) in map do
+                            measureWithType keyType k
+                            measureWithType valueType v
+
+                    | Union cases ->
+                        let (tag, innerValue) = unbox<uint * obj> value
+                        // Calculate ULEB128 size for tag
+                        let mutable tagSize = 1
+                        let mutable val' = uint64 tag >>> 7
+                        while val' > 0UL do
+                            tagSize <- tagSize + 1
+                            val' <- val' >>> 7
+                        position <- position + tagSize
+                        
+                        let innerType = Map.find tag cases
+                        measureWithType innerType innerValue
+
+                    | Struct fields ->
+                        let record = value
+                        for field in fields do
+                            let fieldValue = getRecordField record field.Name
+                            measureWithType field.Type fieldValue
+
+                | UserDefined typeName ->
+                    // Look up the type in the schema
+                    let actualType = Map.find typeName schema.Types
+                    measureWithType actualType value
+
+            // Start measuring with the root type
+            let rootType = Map.find schema.Root schema.Types
+            measureWithType rootType (box value)
+            Ok position
+        with ex ->
+            Error (encodingError ex.Message)
